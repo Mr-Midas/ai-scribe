@@ -35,6 +35,7 @@ Works with **TherapyBoss, WellSky/Kinnser, Axxess, IntakeQ, or any other web-bas
 | **Deep Auto-Drive** | If the normal page scan misses the note field, the extension attaches Chrome's debugger (CDP) and reads the page's HTML layering, CSS, JS console, and network — then fills the field directly. No second extension needed. |
 | **React/MUI-safe filling** | Uses the native value-setter hack + `input`/`change`/`blur` events, so controlled inputs (React, Angular) accept the text. Rich-text editors (Quill/CKEditor/contenteditable) are handled too. |
 | **SOAP section splitting** | If your EMR splits the note into Subjective/Objective/Assessment/Plan fields, the extension detects it and fills each section into its own field. |
+| **Auto model detection** | Picks the best model installed in your Ollama (`phi3`, `llama3:8b`, `hermes-qwen`, …) — nothing to configure, works on any machine. |
 | **Browser MCP (optional upgrade)** | The popup checks if the Browser MCP extension is installed and offers a one-click install link. If data entry misbehaves, it nudges you toward it — MCP reads pages through the accessibility tree, the most reliable path for tricky forms. |
 | **Overwrite protection** | Never clobbers existing text without asking. |
 | **100% local generation** | Ollama runs on your machine. HIPAA-friendly: patient data never leaves the device. |
@@ -49,13 +50,13 @@ brew install ollama
 
 If Homebrew isn't installed, download Ollama from https://ollama.com/download instead.
 
-### 2. Download the model
+### 2. Download a model
 
 ```bash
-ollama pull phi3
+ollama pull llama3:8b
 ```
 
-(This project uses `phi3` — fast on 8GB machines. `ollama pull llama3` also works; switch `MODEL` in `background.js`.)
+Any decent local model works — the extension auto-detects whatever you have installed (`llama3:8b`, `phi3`, `hermes-qwen`, `qwen2.5-coder`, …). `llama3:8b` is a safe, fast default.
 
 ### 3. Load the extension in Chrome
 
@@ -80,7 +81,7 @@ Creates **TherapyNote AI Scribe.app** on your Desktop.
 
 1. Open your EMR in Chrome (e.g. TherapyBoss, on the Daily Note / Progress Note screen)
 2. Open the extension, type or paste your raw notes
-3. Click **Generate Compliant Note**
+3. Click **Generate Compliant Note** (the status bar shows which local model was used)
 4. Click **Fill in EMR** (EMR is auto-detected from the URL, or pick it in Auto-Fill Settings)
 5. Review on the page, then save
 
@@ -110,20 +111,20 @@ Then add `<option value="mycompany">My Company EMR</option>` to the `#platformSe
 popup (configs.js + popup.js)  →  background.js  →  content.js (configs.js)
       │                             │                   └─ scrape / fill the EMR page
       │                             └─ chrome.debugger deep drive (HTML/CSS/console/network)
-      └─ Ollama (localhost:11434)  ← background.js routes GENERATE_NOTE
+      └─ Ollama (localhost:11434)  ← background.js routes GENERATE_NOTE (auto model pick)
 ```
 
 - **popup.js** — orchestration: generate → detect platform → scrape → pick target → fill → verify
 - **content.js** — generic page engine: field discovery (labels/ARIA/placeholders), React-safe fill, rich-editor fill, legacy single-field fill
 - **configs.js** — per-platform note-field profiles + target-picking heuristics (shared by popup and content script)
-- **background.js** — Ollama calls, Deep Auto-Drive (chrome.debugger), Browser MCP detection
+- **background.js** — Ollama calls (with auto model detection), Deep Auto-Drive (chrome.debugger), Browser MCP detection
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---|---|
 | "Cannot connect to Ollama" | Make sure Ollama is installed. Run `ollama serve`, then try again. |
-| "Model not found" | Run `ollama pull phi3` |
+| "Model not found" | Run `ollama pull llama3:8b` (the extension auto-detects installed models). |
 | "Could not find the note field" | Make sure you're on the correct EMR screen (a new Daily Note), then click Fill again. Enable **Deep Auto-Drive** in Auto-Fill Settings. |
 | Fill fails on a tricky form | Install **Browser MCP** (one-click button in the popup) — it reads pages through the accessibility tree. |
 | Extension doesn't appear in Chrome | Go to `chrome://extensions` and click the refresh button |

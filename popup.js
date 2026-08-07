@@ -23,9 +23,6 @@ Plan: Continue OT per plan of care. Will progress to Min A for upper body dressi
 INSTRUCTIONS:
 Transform the following raw notes into a compliant home health note following the rules above. Use plain text only.`;
 
-const OLLAMA_ENDPOINT = "http://localhost:11434/api/generate";
-const MODEL = "phi3"; // Switched to phi3 for significantly faster performance on 8GB Macs
-
 // ── Elements ────────────────────────────────────────────────────────────────
 
 const rawNotes = document.getElementById("rawNotes");
@@ -199,7 +196,8 @@ generateBtn.addEventListener("click", async () => {
     outputNotes.value = data.response.trim();
     outputSection.classList.add("visible");
     fillButtonRow.style.display = "flex";
-    showStatus("Note generated successfully. Review, then click Fill in EMR.", "success");
+    const modelTag = data.model ? ` (model: ${data.model})` : "";
+    showStatus(`Note generated successfully${modelTag}. Review, then click Fill in EMR.`, "success");
     saveState();
   } catch (err) {
     showStatus(`Error: ${err.message}`, "error");

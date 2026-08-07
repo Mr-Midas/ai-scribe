@@ -1,7 +1,9 @@
 /**
  * background.js — Service worker
  *
- * 1. GENERATE_NOTE — Ollama (local, HIPAA-safe) note generation
+ * 1. GENERATE_NOTE — Ollama (local, HIPAA-safe) note generation. The model
+ *    is auto-detected from the installed Ollama models (never hardcoded, so
+ *    it works on any machine regardless of which models are pulled).
  * 2. Deep Auto-Drive — chrome.debugger (CDP) reads the page's layering
  *    (distilled HTML, CSS, JS console, network failures) and can fill
  *    fields even when the content script isn't injected
@@ -10,7 +12,20 @@
  */
 
 const OLLAMA_ENDPOINT = 'http://localhost:11434/api/generate';
-const MODEL = 'phi3'; // fast on 8GB Macs
+const OLLAMA_TAGS_ENDPOINT = 'http://localhost:11434/api/tags';
+
+// Ordered preference list — the first model that's actually installed wins.
+// Fall back to any completion-capable model, so it works out of the box.
+const PREFERRED_MODELS = [
+  'phi3',
+  'llama3:8b',
+  'llama3',
+  'hermes-qwen',
+  'qwen2.5-coder:latest',
+  'qwen2.5-coder:14b',
+  'gemma2',
+  'mistral'
+];
 
 // Browser MCP Chrome extension (web store ID)
 const BROWSER_MCP_EXT_ID = 'bjfgambnhccakkhmkepdoekmckoijdlc';
@@ -29,24 +44,45 @@ const CDP_SELECTOR =
 // OLLAMA GENERATION
 // ============================================================================
 
+/** Pick the best installed Ollama model (cached for the service-worker session). */
+let cachedModel = null;
+async function pickModel() {
+  if (cachedModel) return cachedModel;
+  try {
+    const resp = await fetch(OLLAMA_TAGS_ENDPOINT);
+    if (resp.ok) {
+      const data = await resp.json();
+      const installed = (data.models || []).map(m => m.name);
+      for (const m of PREFERRED_MODELS) {
+        if (installed.includes(m)) { cachedModel = m; return m; }
+      }
+      const anyCapable = (data.models || []).find(m => (m.capabilities || []).includes('completion'));
+      if (anyCapable) { cachedModel = anyCapable.name; return anyCapable.name; }
+    }
+  } catch (e) { /* Ollama down — the generate call will surface the error */ }
+  cachedModel = 'llama3:8b'; // last-resort guess; generate() will report if missing
+  return cachedModel;
+}
+
 function generateNote(systemPrompt, prompt) {
-  return fetch(OLLAMA_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: MODEL,
-      stream: false,
-      system: systemPrompt,
-      prompt,
-      options: { temperature: 0.3, top_p: 0.9, num_predict: 1024 }
+  return pickModel()
+    .then(model => fetch(OLLAMA_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        stream: false,
+        system: systemPrompt,
+        prompt,
+        options: { temperature: 0.3, top_p: 0.9, num_predict: 1024 }
+      })
     })
-  })
-    .then(response => {
-      if (!response.ok) throw new Error(`Ollama responded with status ${response.status}`);
-      return response.json();
-    })
-    .then(data => ({ success: true, response: data.response }))
-    .catch(error => ({ success: false, error: error.message }));
+      .then(response => {
+        if (!response.ok) throw new Error(`Ollama responded with status ${response.status}`);
+        return response.json();
+      })
+      .then(data => ({ success: true, model, response: data.response }))
+      .catch(error => ({ success: false, model, error: error.message })));
 }
 
 // ============================================================================
