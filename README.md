@@ -1,14 +1,17 @@
 # TherapyNote AI Scribe
 
-A local, private AI-powered Chrome Extension for home health occupational therapists. Converts raw shorthand notes into Medicare-compliant SOAP documentation using Ollama — **100% HIPAA compliant, nothing ever leaves the machine.**
+A local, private AI-powered Chrome Extension for home health therapists. Converts raw shorthand notes into Medicare-compliant SOAP documentation using **Ollama — 100% local, nothing ever leaves the machine** — then **auto-fills it into your EMR**.
+
+Works with **TherapyBoss, WellSky/Kinnser, Axxess, IntakeQ, or any other web-based EMR** — because home health companies often work with more than one system, the fill engine is site-agnostic.
 
 ## What It Does
 
 1. You type or paste messy shorthand notes into the extension
 2. The AI transforms them into a professional, legally defensible Daily Treatment Note
-3. You copy the output and paste it into TherapyBoss
+3. Click **Fill in EMR** — it finds the note field on the open EMR page and fills it in (React/MUI-safe, works with rich-text editors)
+4. Review on the page, then save — or just **Copy** and paste manually
 
-**No cloud APIs. No data sent anywhere. Everything runs on your Mac.**
+**No cloud APIs. No data sent anywhere. Everything runs on your machine.**
 
 ## Example
 
@@ -24,11 +27,21 @@ A local, private AI-powered Chrome Extension for home health occupational therap
 
 ---
 
+## Features (v2.0)
+
+| Feature | How it works |
+|---|---|
+| **Multi-platform auto-fill** | Site profiles in `configs.js` for TherapyBoss, WellSky/Kinnser, Axxess, IntakeQ + a generic profile that works on any site. Pick the EMR in the popup or let it auto-detect from the URL. |
+| **Deep Auto-Drive** | If the normal page scan misses the note field, the extension attaches Chrome's debugger (CDP) and reads the page's HTML layering, CSS, JS console, and network — then fills the field directly. No second extension needed. |
+| **React/MUI-safe filling** | Uses the native value-setter hack + `input`/`change`/`blur` events, so controlled inputs (React, Angular) accept the text. Rich-text editors (Quill/CKEditor/contenteditable) are handled too. |
+| **SOAP section splitting** | If your EMR splits the note into Subjective/Objective/Assessment/Plan fields, the extension detects it and fills each section into its own field. |
+| **Browser MCP (optional upgrade)** | The popup checks if the Browser MCP extension is installed and offers a one-click install link. If data entry misbehaves, it nudges you toward it — MCP reads pages through the accessibility tree, the most reliable path for tricky forms. |
+| **Overwrite protection** | Never clobbers existing text without asking. |
+| **100% local generation** | Ollama runs on your machine. HIPAA-friendly: patient data never leaves the device. |
+
 ## Setup Instructions
 
 ### 1. Install Ollama
-
-Open Terminal and run:
 
 ```bash
 brew install ollama
@@ -36,98 +49,100 @@ brew install ollama
 
 If Homebrew isn't installed, download Ollama from https://ollama.com/download instead.
 
-### 2. Download the LLaMA 3 model
-
-In Terminal, run:
+### 2. Download the model
 
 ```bash
-ollama pull llama3
+ollama pull phi3
 ```
 
-This downloads the AI model (~4.7 GB). Only needs to be done once.
+(This project uses `phi3` — fast on 8GB machines. `ollama pull llama3` also works; switch `MODEL` in `background.js`.)
 
-### 3. Download this repository
-
-Click the green **Code** button above → **Download ZIP** → unzip it to your Desktop.
-
-Or if you're comfortable with Terminal:
-
-```bash
-git clone https://github.com/Mr-Midas/therapy-note-ai-scribe.git ~/therapy-note-ai-scribe
-```
-
-### 4. Generate the extension icons
-
-Open Terminal and run:
-
-```bash
-cd ~/therapy-note-ai-scribe
-pip3 install Pillow
-python3 generate_icons.py
-```
-
-### 5. Load the extension in Chrome
+### 3. Load the extension in Chrome
 
 1. Open Google Chrome
-2. Type `chrome://extensions` in the address bar, press Enter
-3. Toggle **Developer mode** ON (top-right corner)
+2. Type `chrome://extensions`, press Enter
+3. Toggle **Developer mode** ON (top-right)
 4. Click **Load unpacked** (top-left)
-5. Select the project folder: `~/therapy-note-ai-scribe`
-6. Pin the extension: click puzzle-piece icon → pin "TherapyNote AI Scribe"
+5. Select this project folder
+6. Pin the extension
 
-### 6. Create the desktop app
+> ⚠️ **Permissions notice:** the extension asks for `debugger`, `tabs`, `management`, and access to all sites. That's what powers Deep Auto-Drive (reading any EMR's page) and Browser MCP detection. It only reads the page when you click **Fill in EMR**; it never sends data anywhere.
 
-Run the setup script in Terminal:
+### 4. (Optional) Desktop app on macOS
 
 ```bash
-cd ~/therapy-note-ai-scribe
 bash create_app.sh
 ```
 
-This creates **TherapyNote AI Scribe.app** on your Desktop. Drag it to your Dock for easy access.
-
----
+Creates **TherapyNote AI Scribe.app** on your Desktop.
 
 ## Daily Usage
 
-1. Click **TherapyNote AI Scribe** in your Dock
-2. Chrome opens with the extension
-3. Type or paste your raw notes
-4. Click **Generate Compliant Note**
-5. Review the output, click **Copy**, paste into TherapyBoss
+1. Open your EMR in Chrome (e.g. TherapyBoss, on the Daily Note / Progress Note screen)
+2. Open the extension, type or paste your raw notes
+3. Click **Generate Compliant Note**
+4. Click **Fill in EMR** (EMR is auto-detected from the URL, or pick it in Auto-Fill Settings)
+5. Review on the page, then save
 
-**Keyboard shortcut:** `Cmd + Enter` in the notes field triggers generation.
+**Keyboard shortcut:** `Cmd + Enter` (Mac) or `Ctrl + Enter` (Windows) in the notes field triggers generation.
 
-> **Note:** The first time you use it each day, it may take 5-10 seconds for Ollama to start. After that, generation takes 2-5 seconds.
+## Adding a New EMR Platform
 
----
+Add a profile to `configs.js` — no other code changes:
+
+```js
+mycompany: {
+  label: 'My Company EMR',
+  domains: ['myemr.com'],
+  noteField: {
+    labelKeywords: ['clinical note', 'note', 'documentation'],
+    selectors: ['textarea[id*="note" i]', '[role="textbox"][aria-label*="note" i]']
+  },
+  sections: []
+}
+```
+
+Then add `<option value="mycompany">My Company EMR</option>` to the `#platformSelect` dropdown in `popup.html`.
+
+## Architecture
+
+```
+popup (configs.js + popup.js)  →  background.js  →  content.js (configs.js)
+      │                             │                   └─ scrape / fill the EMR page
+      │                             └─ chrome.debugger deep drive (HTML/CSS/console/network)
+      └─ Ollama (localhost:11434)  ← background.js routes GENERATE_NOTE
+```
+
+- **popup.js** — orchestration: generate → detect platform → scrape → pick target → fill → verify
+- **content.js** — generic page engine: field discovery (labels/ARIA/placeholders), React-safe fill, rich-editor fill, legacy single-field fill
+- **configs.js** — per-platform note-field profiles + target-picking heuristics (shared by popup and content script)
+- **background.js** — Ollama calls, Deep Auto-Drive (chrome.debugger), Browser MCP detection
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---|---|
-| "Cannot connect to Ollama" error | Make sure Ollama is installed. Try opening Terminal and running `ollama serve`, then try again. |
-| "Model not found" error | Open Terminal and run `ollama pull llama3` |
+| "Cannot connect to Ollama" | Make sure Ollama is installed. Run `ollama serve`, then try again. |
+| "Model not found" | Run `ollama pull phi3` |
+| "Could not find the note field" | Make sure you're on the correct EMR screen (a new Daily Note), then click Fill again. Enable **Deep Auto-Drive** in Auto-Fill Settings. |
+| Fill fails on a tricky form | Install **Browser MCP** (one-click button in the popup) — it reads pages through the accessibility tree. |
 | Extension doesn't appear in Chrome | Go to `chrome://extensions` and click the refresh button |
-| App icon is missing | Run `python3 generate_icons.py` from the terminal in the project folder |
-
----
+| App icon is missing (Mac) | Run `python3 generate_icons.py` in the project folder |
 
 ## Privacy & Security
 
 - **Zero cloud calls** — Ollama runs entirely on your local machine
-- **No data collection** — the extension has no analytics, telemetry, or tracking
+- **No data collection** — no analytics, telemetry, or tracking
 - **No external APIs** — communication is only between the extension and `localhost:11434`
-- **HIPAA compliant** — patient data never leaves the device
-
----
+- **HIPAA friendly** — patient data never leaves the device
+- **Reads the EMR page only on demand** — page scanning happens only when you click **Fill in EMR**
 
 ## Requirements
 
-- macOS 11.0 or later
+- macOS 11.0+ or Windows
 - Google Chrome
 - Ollama (free, open-source)
-- ~5 GB of free disk space (for Ollama + LLaMA 3 model)
+- ~5 GB of free disk space (Ollama + model)
 
 ## License
 

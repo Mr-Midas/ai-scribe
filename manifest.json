@@ -1,25 +1,28 @@
 {
   "manifest_version": 3,
   "name": "TherapyNote AI Scribe",
-  "version": "1.0.0",
-  "description": "Local AI-powered clinical documentation assistant for home health therapists. Converts raw shorthand notes into Medicare-compliant SOAP notes using Ollama.",
+  "version": "2.0.0",
+  "description": "Local AI-powered clinical documentation assistant for home health therapists. Converts raw shorthand notes into Medicare-compliant SOAP notes (Ollama, 100% local) and auto-fills them into TherapyBoss, WellSky/Kinnser, Axxess, IntakeQ, or any EMR.",
   "permissions": [
     "activeTab",
     "storage",
-    "scripting"
+    "tabs",
+    "debugger",
+    "management"
   ],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": ["*://*.therapyboss.com/*"],
-      "js": ["content.js"]
+      "matches": ["<all_urls>"],
+      "js": ["configs.js", "content.js"],
+      "run_at": "document_idle"
     }
   ],
   "host_permissions": [
     "http://localhost:11434/*",
-    "*://*.therapyboss.com/*"
+    "<all_urls>"
   ],
   "action": {
     "default_popup": "popup.html",

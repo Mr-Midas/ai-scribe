@@ -23,6 +23,8 @@
       --success-bg: #dcfce7;
       --error: #dc2626;
       --error-bg: #fee2e2;
+      --warning: #d97706;
+      --warning-bg: #fef3c7;
       --spinner-color: #2563eb;
       --scrollbar-track: #e9ecef;
       --scrollbar-thumb: #adb5bd;
@@ -46,6 +48,8 @@
       --success-bg: #14532d;
       --error: #ef4444;
       --error-bg: #7f1d1d;
+      --warning: #f59e0b;
+      --warning-bg: #78350f;
       --spinner-color: #60a5fa;
       --scrollbar-track: #374151;
       --scrollbar-thumb: #6b7280;
@@ -58,8 +62,8 @@
     }
 
     body {
-      width: 420px;
-      min-height: 500px;
+      width: 440px;
+      min-height: 540px;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
       background-color: var(--bg-primary);
       color: var(--text-primary);
@@ -148,7 +152,7 @@
 
     textarea {
       width: 100%;
-      min-height: 140px;
+      min-height: 120px;
       padding: 12px;
       border: 1.5px solid var(--border);
       border-radius: 10px;
@@ -223,6 +227,17 @@
       color: var(--accent);
     }
 
+    .btn-success {
+      background-color: var(--success);
+      color: white;
+    }
+
+    .btn-success:hover:not(:disabled) {
+      filter: brightness(1.1);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px var(--shadow-lg);
+    }
+
     .spinner {
       display: none;
       width: 16px;
@@ -233,11 +248,11 @@
       animation: spin 0.7s linear infinite;
     }
 
-    .btn-primary.loading .spinner {
+    .btn.loading .spinner {
       display: block;
     }
 
-    .btn-primary.loading .btn-text {
+    .btn.loading .btn-text {
       display: none;
     }
 
@@ -263,7 +278,7 @@
 
     .output-textarea {
       width: 100%;
-      min-height: 180px;
+      min-height: 160px;
       padding: 12px;
       border: 1.5px solid var(--success);
       border-radius: 10px;
@@ -312,9 +327,10 @@
       font-size: 12px;
       font-weight: 500;
       display: none;
-      align-items: center;
+      align-items: flex-start;
       gap: 6px;
       margin-bottom: 14px;
+      line-height: 1.45;
     }
 
     .status-bar.visible {
@@ -331,6 +347,221 @@
       background-color: var(--success-bg);
       color: var(--success);
       border: 1px solid var(--success);
+    }
+
+    .status-bar.info {
+      background-color: var(--accent-light);
+      color: var(--accent);
+      border: 1px solid var(--accent);
+    }
+
+    .status-bar.warning {
+      background-color: var(--warning-bg);
+      color: var(--warning);
+      border: 1px solid var(--warning);
+    }
+
+    .status-step {
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    /* Fill settings */
+    .settings-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 14px;
+    }
+
+    .settings-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .settings-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .settings-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .settings-label {
+      font-size: 12.5px;
+      color: var(--text-secondary);
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    select {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 10px;
+      font-size: 12.5px;
+      color: var(--text-primary);
+      font-weight: 600;
+      cursor: pointer;
+      outline: none;
+      transition: border-color 0.2s;
+      max-width: 210px;
+    }
+
+    select:focus {
+      border-color: var(--border-focus);
+    }
+
+    select option {
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+    }
+
+    .toggle {
+      position: relative;
+      width: 38px;
+      height: 21px;
+      flex: 0 0 auto;
+    }
+
+    .toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 21px;
+      transition: 0.25s;
+    }
+
+    .toggle .slider::before {
+      content: "";
+      position: absolute;
+      height: 15px;
+      width: 15px;
+      left: 3px;
+      bottom: 2px;
+      background-color: var(--text-muted);
+      border-radius: 50%;
+      transition: 0.25s;
+    }
+
+    .toggle input:checked + .slider {
+      background-color: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .toggle input:checked + .slider::before {
+      transform: translateX(16px);
+      background-color: white;
+    }
+
+    .settings-hint {
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.4;
+      margin-top: 2px;
+    }
+
+    /* Browser MCP card */
+    .mcp-card {
+      background: var(--bg-secondary);
+      border: 1px dashed var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 14px;
+    }
+
+    .mcp-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .mcp-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .mcp-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 20px;
+      white-space: nowrap;
+    }
+
+    .mcp-badge.ok {
+      background: var(--success-bg);
+      color: var(--success);
+    }
+
+    .mcp-badge.missing {
+      background: var(--warning-bg);
+      color: var(--warning);
+    }
+
+    .mcp-hint {
+      display: none;
+      font-size: 11.5px;
+      color: var(--warning);
+      background: var(--warning-bg);
+      border-radius: 8px;
+      padding: 8px 10px;
+      margin-top: 10px;
+      line-height: 1.45;
+    }
+
+    .mcp-hint.visible {
+      display: block;
+    }
+
+    .mcp-install-btn {
+      display: none;
+      width: 100%;
+      margin-top: 8px;
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .mcp-install-btn:hover {
+      background: var(--accent-hover);
+    }
+
+    .mcp-install-btn.visible {
+      display: block;
     }
 
     .footer {
@@ -367,7 +598,10 @@
       </button>
     </div>
 
-    <div class="status-bar" id="statusBar"></div>
+    <div class="status-bar" id="statusBar">
+      <span class="status-step" id="statusStep"></span>
+      <span id="statusText"></span>
+    </div>
 
     <div class="input-section">
       <label class="label" for="rawNotes">Your Raw Notes</label>
@@ -386,10 +620,47 @@
       <button class="btn btn-secondary" id="clearBtn" title="Clear all">Clear</button>
     </div>
 
-    <div class="button-row" id="fillButtonRow" style="display:none; justify-content: center;">
-      <button class="btn btn-primary" id="fillBtn" style="background-color: var(--success);">
-        📋 Fill in TherapyBoss
+    <div class="settings-card">
+      <div class="settings-title">🖊️ Auto-Fill Settings</div>
+      <div class="settings-row">
+        <span class="settings-label">🎯 Target EMR</span>
+        <select id="platformSelect" title="Which EMR to auto-fill">
+          <option value="auto">Auto-detect</option>
+          <option value="therapyboss">TherapyBoss</option>
+          <option value="wellsky">WellSky / Kinnser</option>
+          <option value="axxess">Axxess</option>
+          <option value="intakeq">IntakeQ</option>
+          <option value="generic">Generic (any site)</option>
+        </select>
+      </div>
+      <div class="settings-row">
+        <span class="settings-label">🔍 Deep Auto-Drive</span>
+        <label class="toggle">
+          <input type="checkbox" id="deepDriveToggle" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="settings-hint">
+        Deep Auto-Drive reads the page (HTML, CSS, console, network) through Chrome's debugger when the normal scan misses the note field. Works on any EMR — companies use different systems.
+      </div>
+    </div>
+
+    <div class="button-row" id="fillButtonRow" style="display:none;">
+      <button class="btn btn-success" id="fillBtn">
+        <span class="spinner"></span>
+        <span class="btn-text">📝 Fill in EMR</span>
       </button>
+    </div>
+
+    <div class="mcp-card">
+      <div class="mcp-head">
+        <span class="mcp-title">🕸️ Browser MCP <span class="settings-hint" style="display:inline">(optional upgrade)</span></span>
+        <span class="mcp-badge missing" id="mcpBadge">Checking…</span>
+      </div>
+      <div class="mcp-hint" id="mcpHint">
+        ⚠️ Data entry not working correctly? Install Browser MCP — it reads pages through the accessibility tree, which is far more reliable on tricky forms.
+      </div>
+      <button class="mcp-install-btn" id="mcpInstallBtn">Install Browser MCP</button>
     </div>
 
     <div class="output-section" id="outputSection">
@@ -406,10 +677,12 @@
     </div>
 
     <div class="footer">
-      <div>TherapyNote AI Scribe v1.0</div>
+      <div>TherapyNote AI Scribe v2.0</div>
       <div class="privacy-badge">🔒 100% Local &amp; Private — Powered by Ollama</div>
     </div>
   </div>
 
+  <script src="configs.js"></script>
   <script src="popup.js"></script>
 </body>
+</html>
