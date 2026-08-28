@@ -10,6 +10,19 @@ A local, private AI-powered Chrome Extension for home health occupational therap
 
 **No cloud APIs. No data sent anywhere. Everything runs on your machine.**
 
+## How It Works
+
+The extension sends your raw notes to a local AI model (phi3 via Ollama) along with a detailed system prompt that teaches the model how to write clinical documentation. The prompt handles the heavy lifting:
+
+- **Clinical compliance rules** — forces active, skilled language ("Therapist facilitated..." instead of "patient walked") and requires objective measurements (sets, reps, distances, assistance levels)
+- **Proper OT terminology** — defines all 8 assistance levels (Independent through Total Assist) and adaptive equipment names (reacher, dressing stick, sock aide, etc.) so the AI uses exact clinical terms
+- **Note type awareness** — you select Initial Evaluation or Treatment/Re-eval before generating, and the prompt changes what the AI documents (observations only for initial evals, progress comparisons for re-evals)
+- **Safety observations** — the prompt instructs the AI to document hand placements, time to complete tasks, number of attempts, and verbal/visual cues provided
+- **Context-aware goals** — the AI considers the patient's diagnosis when setting goals (e.g., a frontal lobe stroke patient won't have "independent" as a realistic goal)
+- **Format enforcement** — outputs plain text SOAP notes with no markdown, no placeholders, and only the sections that have data
+
+The result is a note that looks like a skilled therapist wrote it, not an AI.
+
 ## Example
 
 **Raw input:**
