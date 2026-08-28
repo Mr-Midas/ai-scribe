@@ -40,6 +40,26 @@ The result is a note that looks like a skilled therapist wrote it, not an AI.
 
 ## Setup Instructions
 
+### Quick Setup (Recommended)
+
+**macOS / Linux:**
+```bash
+git clone https://github.com/Mr-Midas/therapy-note-ai-scribe.git
+cd therapy-note-ai-scribe
+bash setup.sh
+```
+
+**Windows:**
+```powershell
+git clone https://github.com/Mr-Midas/therapy-note-ai-scribe.git
+cd therapy-note-ai-scribe
+setup.bat
+```
+
+The setup script will automatically check for Ollama, download the AI model, and generate extension icons — skipping anything that's already installed.
+
+### Manual Setup
+
 ### 1. Install Ollama
 
 #### macOS
