@@ -15,12 +15,13 @@ A local, private AI-powered Chrome Extension for home health occupational therap
 **Raw input:**
 > Pt had R shoulder pain 5/10. couldn't put on shirt. did active ROM for 10 mins. practiced upper body dressing with reacher, mod assist because he couldn't reach behind back.
 
-**Generated output:**
-> **Subjective:** Patient reports right shoulder pain at 5/10, noting difficulty with upper body dressing.
-> **Objective:** - Therapeutic Exercise: Facilitated active range of motion (AROM) of the right upper extremity for 10 minutes to improve joint mobility and decrease pain prior to ADL participation.
-> - ADL Training: Instructed patient in upper body dressing utilizing adaptive equipment (reacher). Patient required Mod A for task completion due to decreased shoulder internal rotation and safety awareness. Therapist provided verbal cues for sequencing and joint protection techniques.
-> **Assessment:** Patient demonstrates impaired right upper extremity AROM and decreased independence with upper body dressing. Skilled intervention required to train in adaptive equipment use to maximize safety and independence with ADLs.
-> **Plan:** Continue OT per plan of care to address upper extremity ROM and ADL retraining. Will progress to Min A for upper body dressing utilizing the reacher.
+**Generated output (Initial Evaluation):**
+> Subjective: Patient reports right shoulder pain at 5/10, noting difficulty with upper body dressing.
+> Objective:
+> - Therapeutic Exercise: Facilitated active range of motion (AROM) of the right upper extremity for 10 minutes to improve joint mobility and decrease pain prior to ADL participation. Patient demonstrated forward flexion to 120 degrees, abduction to 90 degrees.
+> - ADL Training: Instructed patient in upper body dressing utilizing adaptive equipment (reacher). Patient required Mod A for task completion. Safety: Therapist placed hands at bilateral hips for stability during standing dressing tasks. Patient required 2 attempts to don shirt. Time to complete upper body dressing: 8 minutes. Verbal cues provided for sequencing and joint protection techniques.
+> Assessment: Patient demonstrates impaired right upper extremity AROM and decreased independence with upper body dressing. Skilled intervention required to maximize safety and improve functional independence.
+> Plan: Continue OT per plan of care. Will progress to Min A for upper body dressing. Goal: Patient will perform upper body dressing with Standby Assist within 4 weeks.
 
 ---
 
