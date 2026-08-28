@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TherapyNote AI Scribe",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Local AI-powered clinical documentation assistant for home health therapists. Converts raw shorthand notes into Medicare-compliant SOAP notes using Ollama.",
   "permissions": [
     "activeTab",

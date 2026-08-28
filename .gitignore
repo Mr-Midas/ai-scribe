@@ -5,5 +5,4 @@
 # Logs
 Library/Logs/TherapyNoteScribe/
 
-# Generated icons (re-generate with generate_icons.py)
-icons/*.png
+

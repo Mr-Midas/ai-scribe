@@ -1,7 +1,7 @@
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === "GENERATE_NOTE") {
     const OLLAMA_ENDPOINT = "http://localhost:11434/api/generate";
-    const MODEL = "llama3";
+    const MODEL = "phi3";
 
     fetch(OLLAMA_ENDPOINT, {
       method: "POST",
@@ -14,7 +14,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         options: {
           temperature: 0.3,
           top_p: 0.9,
-          num_predict: 2048
+          num_predict: 1024
         }
       })
     })

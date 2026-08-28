@@ -26,6 +26,9 @@
       --spinner-color: #2563eb;
       --scrollbar-track: #e9ecef;
       --scrollbar-thumb: #adb5bd;
+      --progress-bg: #e5e7eb;
+      --progress-fill: #2563eb;
+      --progress-shimmer: rgba(255,255,255,0.4);
     }
 
     :root[data-theme="dark"] {
@@ -49,6 +52,9 @@
       --spinner-color: #60a5fa;
       --scrollbar-track: #374151;
       --scrollbar-thumb: #6b7280;
+      --progress-bg: #4b5563;
+      --progress-fill: #3b82f6;
+      --progress-shimmer: rgba(255,255,255,0.15);
     }
 
     * {
@@ -170,6 +176,102 @@
     textarea::placeholder {
       color: var(--text-muted);
       font-style: italic;
+    }
+
+    /* Note Type Selector */
+    .note-type-section {
+      margin-bottom: 14px;
+    }
+
+    .note-type-selector {
+      display: flex;
+      gap: 0;
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      background: var(--bg-secondary);
+    }
+
+    .note-type-btn {
+      flex: 1;
+      padding: 10px 12px;
+      border: none;
+      background: transparent;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      color: var(--text-muted);
+      transition: all 0.2s;
+      text-align: center;
+    }
+
+    .note-type-btn:not(:last-child) {
+      border-right: 1px solid var(--border);
+    }
+
+    .note-type-btn.active {
+      background: var(--accent);
+      color: white;
+    }
+
+    .note-type-btn:hover:not(.active) {
+      background: var(--accent-light);
+      color: var(--accent);
+    }
+
+    /* Progress Bar */
+    .progress-container {
+      display: none;
+      margin-bottom: 14px;
+    }
+
+    .progress-container.visible {
+      display: block;
+    }
+
+    .progress-bar-track {
+      width: 100%;
+      height: 6px;
+      background: var(--progress-bg);
+      border-radius: 3px;
+      overflow: hidden;
+      margin-bottom: 6px;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      background: var(--progress-fill);
+      border-radius: 3px;
+      width: 0%;
+      transition: width 0.4s ease;
+      position: relative;
+    }
+
+    .progress-bar-fill.active {
+      animation: shimmer 1.5s infinite;
+    }
+
+    @keyframes shimmer {
+      0% { background-position: -200px 0; }
+      100% { background-position: 200px 0; }
+    }
+
+    .progress-bar-fill.active::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: linear-gradient(90deg, transparent, var(--progress-shimmer), transparent);
+      background-size: 200px 100%;
+      animation: shimmer 1.5s infinite linear;
+    }
+
+    .progress-status {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-align: center;
     }
 
     .button-row {
@@ -369,13 +471,30 @@
 
     <div class="status-bar" id="statusBar"></div>
 
+    <!-- Note Type Selector -->
+    <div class="note-type-section">
+      <label class="label">Note Type</label>
+      <div class="note-type-selector" id="noteTypeSelector">
+        <button class="note-type-btn active" data-type="initial-eval">Initial Evaluation</button>
+        <button class="note-type-btn" data-type="treatment">Treatment / Re-eval</button>
+      </div>
+    </div>
+
     <div class="input-section">
       <label class="label" for="rawNotes">Your Raw Notes</label>
       <textarea
         id="rawNotes"
-        placeholder="Enter your shorthand or dictated notes here...&#10;&#10;Example: Pt had R knee pain 6/10, did balance exercises, worked on stairs with railing..."
+        placeholder="Enter your shorthand or dictated notes here...&#10;&#10;Example: Pt had R knee pain 6/10, did balance exercises, worked on stairs with railing...&#10;&#10;Tip: Include diagnosis, assistance level needed, adaptive equipment used, and safety observations."
         spellcheck="false"
       ></textarea>
+    </div>
+
+    <!-- Progress Bar -->
+    <div class="progress-container" id="progressContainer">
+      <div class="progress-bar-track">
+        <div class="progress-bar-fill" id="progressBarFill"></div>
+      </div>
+      <div class="progress-status" id="progressStatus">Initializing...</div>
     </div>
 
     <div class="button-row">
@@ -400,10 +519,11 @@
     </div>
 
     <div class="footer">
-      <div>TherapyNote AI Scribe v1.0</div>
+      <div>TherapyNote AI Scribe v1.1</div>
       <div class="privacy-badge">🔒 100% Local &amp; Private — Powered by Ollama</div>
     </div>
   </div>
 
   <script src="popup.js"></script>
 </body>
+</html>

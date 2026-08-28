@@ -8,7 +8,7 @@ A local, private AI-powered Chrome Extension for home health occupational therap
 2. The AI transforms them into a professional, legally defensible Daily Treatment Note
 3. You copy the output and paste it into TherapyBoss
 
-**No cloud APIs. No data sent anywhere. Everything runs on your Mac.**
+**No cloud APIs. No data sent anywhere. Everything runs on your machine.**
 
 ## Example
 
@@ -28,6 +28,8 @@ A local, private AI-powered Chrome Extension for home health occupational therap
 
 ### 1. Install Ollama
 
+#### macOS
+
 Open Terminal and run:
 
 ```bash
@@ -36,48 +38,80 @@ brew install ollama
 
 If Homebrew isn't installed, download Ollama from https://ollama.com/download instead.
 
-### 2. Download the LLaMA 3 model
+#### Windows
 
-In Terminal, run:
+1. Download the installer from https://ollama.com/download
+2. Run the `.exe` installer and follow the prompts
+3. Ollama will start automatically and run in the system tray
+
+### 2. Download the AI Model
+
+#### macOS
 
 ```bash
 ollama pull llama3
 ```
 
-This downloads the AI model (~4.7 GB). Only needs to be done once.
+#### Windows
 
-### 3. Download this repository
+Open **Command Prompt** or **PowerShell** and run:
+
+```powershell
+ollama pull phi3
+```
+
+This downloads the AI model (~2-5 GB). Only needs to be done once.
+
+### 3. Download This Repository
 
 Click the green **Code** button above → **Download ZIP** → unzip it to your Desktop.
 
-Or if you're comfortable with Terminal:
+Or if you're comfortable with the terminal:
 
+**macOS:**
 ```bash
 git clone https://github.com/Mr-Midas/therapy-note-ai-scribe.git ~/therapy-note-ai-scribe
+cd ~/therapy-note-ai-scribe
 ```
 
-### 4. Generate the extension icons
+**Windows:**
+```powershell
+git clone https://github.com/Mr-Midas/therapy-note-ai-scribe.git
+cd therapy-note-ai-scribe
+```
 
-Open Terminal and run:
+> **Windows note:** Do NOT clone to `~/therapy-note-ai-scribe` — the `~` shortcut behaves differently in PowerShell and will create a literal folder named `~`. Clone into your current directory instead.
 
+### 4. Generate the Extension Icons
+
+**macOS:**
 ```bash
-cd ~/therapy-note-ai-scribe
 pip3 install Pillow
 python3 generate_icons.py
 ```
 
-### 5. Load the extension in Chrome
+**Windows:**
+```powershell
+pip install Pillow
+python generate_icons.py
+```
+
+> If you get a "python3 not found" error on Windows, try `python` instead of `python3`.
+
+### 5. Load the Extension in Chrome
+
+These steps are the same for macOS and Windows:
 
 1. Open Google Chrome
 2. Type `chrome://extensions` in the address bar, press Enter
 3. Toggle **Developer mode** ON (top-right corner)
 4. Click **Load unpacked** (top-left)
-5. Select the project folder: `~/therapy-note-ai-scribe`
-6. Pin the extension: click puzzle-piece icon → pin "TherapyNote AI Scribe"
+5. Select the project folder:
+   - **macOS:** `~/therapy-note-ai-scribe`
+   - **Windows:** `C:\Users\<your-username>\Desktop\therapy-note-ai-scribe` (or wherever you cloned it)
+6. Pin the extension: click the puzzle-piece icon → pin "TherapyNote AI Scribe"
 
-### 6. Create the desktop app
-
-Run the setup script in Terminal:
+### 6. Create a Desktop Shortcut (macOS Only)
 
 ```bash
 cd ~/therapy-note-ai-scribe
@@ -86,19 +120,44 @@ bash create_app.sh
 
 This creates **TherapyNote AI Scribe.app** on your Desktop. Drag it to your Dock for easy access.
 
+On Windows, you can pin the Chrome extension to your taskbar, or create a shortcut by right-clicking the Chrome icon on your taskbar after loading the extension.
+
 ---
 
-## Daily Usage
+## How to Use
 
-1. Click **TherapyNote AI Scribe** in your Dock
+1. Click **TherapyNote AI Scribe** in your Dock/taskbar
 2. Chrome opens with the extension
-3. Type or paste your raw notes
-4. Click **Generate Compliant Note**
-5. Review the output, click **Copy**, paste into TherapyBoss
+3. Select your note type: **Initial Evaluation** or **Treatment / Re-eval**
+4. Type or paste your raw notes
+5. Click **Generate Compliant Note**
+6. Watch the progress bar as the AI generates your note
+7. Review the output, click **Copy**, paste into TherapyBoss
 
-**Keyboard shortcut:** `Cmd + Enter` in the notes field triggers generation.
+**Keyboard shortcut:** `Ctrl+Enter` (Windows) or `Cmd+Enter` (Mac) in the notes field triggers generation.
 
 > **Note:** The first time you use it each day, it may take 5-10 seconds for Ollama to start. After that, generation takes 2-5 seconds.
+
+---
+
+## OT Terminology Reference
+
+The AI uses clinically accurate OT terminology:
+
+### Assistance Levels
+- **Independent** — Patient performs safely without assistance
+- **Supervision** — Verbal/visual cues only, no physical contact
+- **Standby Assist (SBA)** — Therapist ready but provides no physical contact
+- **Contact Guard Assist (CGA)** — Light touch for safety; patient does majority of task
+- **Minimum Assist (Min A)** — Patient performs 75%+ of task
+- **Moderate Assist (Mod A)** — Patient performs 50-74% of task
+- **Maximum Assist (Max A)** — Patient performs 25-49% of task
+- **Total Assist** — Patient performs <25% of task
+
+### Adaptive Equipment
+- **Reacher** (not "reacher wand" or "grabber")
+- Dressing Stick, Sock Aide, Leg Lifter, Long-handled Shoe Horn
+- Built-up Handles, Universal Cuff, Dycem Mat, Button Hook
 
 ---
 
@@ -106,10 +165,12 @@ This creates **TherapyNote AI Scribe.app** on your Desktop. Drag it to your Dock
 
 | Problem | Fix |
 |---|---|
-| "Cannot connect to Ollama" error | Make sure Ollama is installed. Try opening Terminal and running `ollama serve`, then try again. |
-| "Model not found" error | Open Terminal and run `ollama pull llama3` |
+| "Cannot connect to Ollama" error | Make sure Ollama is running. On macOS, try `ollama serve` in Terminal. On Windows, check the system tray for the Ollama icon. |
+| "Model not found" error | Run `ollama pull phi3` in your terminal |
 | Extension doesn't appear in Chrome | Go to `chrome://extensions` and click the refresh button |
-| App icon is missing | Run `python3 generate_icons.py` from the terminal in the project folder |
+| App icon is missing | Run `python generate_icons.py` from the terminal in the project folder |
+| Windows: `cd ~/therapy-note-ai-scribe` fails | Don't use `~` on Windows. Use `cd therapy-note-ai-scribe` after cloning into your current directory |
+| Windows: `python3` not found | Try `python` instead of `python3` |
 
 ---
 
@@ -124,10 +185,10 @@ This creates **TherapyNote AI Scribe.app** on your Desktop. Drag it to your Dock
 
 ## Requirements
 
-- macOS 11.0 or later
+- macOS 11.0+ or Windows 10+
 - Google Chrome
 - Ollama (free, open-source)
-- ~5 GB of free disk space (for Ollama + LLaMA 3 model)
+- ~5 GB of free disk space (for Ollama + AI model)
 
 ## License
 
