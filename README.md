@@ -53,7 +53,7 @@ bash setup.sh
 ```powershell
 git clone https://github.com/Mr-Midas/therapy-note-ai-scribe.git
 cd therapy-note-ai-scribe
-setup.bat
+.\setup.bat
 ```
 
 The setup script will automatically check for Ollama, download the AI model, and generate extension icons — skipping anything that's already installed.
