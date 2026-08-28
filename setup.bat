@@ -34,6 +34,11 @@ echo.
 
 echo Checking if Ollama server is running...
 
+:: Set OLLAMA_ORIGINS for Chrome extension access
+setx OLLAMA_ORIGINS "*" >nul 2>&1
+set OLLAMA_ORIGINS=*
+echo [OK] OLLAMA_ORIGINS set to * for Chrome extension access.
+
 curl -s http://localhost:11434/api/tags >nul 2>&1
 if %ERRORLEVEL% EQU 0 (
     echo [OK] Ollama server is running.

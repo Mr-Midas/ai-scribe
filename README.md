@@ -200,6 +200,7 @@ The AI uses clinically accurate OT terminology:
 | Problem | Fix |
 |---|---|
 | "Cannot connect to Ollama" error | Make sure Ollama is running. On macOS, try `ollama serve` in Terminal. On Windows, check the system tray for the Ollama icon. |
+| "403 Forbidden" error | Ollama needs CORS access. Run `setx OLLAMA_ORIGINS "*"` then restart Ollama. On macOS: `launchctl setenv OLLAMA_ORIGINS "*"` then restart. |
 | "Model not found" error | Run `ollama pull phi3` in your terminal |
 | Extension doesn't appear in Chrome | Go to `chrome://extensions` and click the refresh button |
 | App icon is missing | Run `python generate_icons.py` from the terminal in the project folder |

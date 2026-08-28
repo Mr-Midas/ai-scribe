@@ -287,6 +287,9 @@ generateBtn.addEventListener("click", async () => {
     showProgress(95, "Finalizing note...");
 
     if (!response.ok) {
+      if (response.status === 403) {
+        throw new Error("Ollama blocked the request (403). Make sure Ollama is running with OLLAMA_ORIGINS=* (run: setx OLLAMA_ORIGINS \"*\" then restart Ollama).");
+      }
       throw new Error(`Ollama responded with status ${response.status}`);
     }
 

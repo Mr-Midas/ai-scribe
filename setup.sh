@@ -70,6 +70,7 @@ if curl -s http://localhost:11434/api/tags &> /dev/null; then
     echo -e "${GREEN}✓${NC} Ollama server is running."
 else
     echo -e "${YELLOW}!${NC} Ollama server is not running. Starting it..."
+    export OLLAMA_ORIGINS="*"
     ollama serve &> /dev/null &
     sleep 3
 
@@ -77,9 +78,13 @@ else
         echo -e "${GREEN}✓${NC} Ollama server started."
     else
         echo -e "${YELLOW}!${NC} Could not auto-start Ollama server."
-        echo "  You may need to run 'ollama serve' manually in another terminal."
+        echo "  You may need to run 'OLLAMA_ORIGINS=* ollama serve' manually."
     fi
 fi
+
+# Ensure OLLAMA_ORIGINS is set for Chrome extension access
+echo "Setting OLLAMA_ORIGINS=* for Chrome extension access..."
+launchctl setenv OLLAMA_ORIGINS "*" 2>/dev/null || export OLLAMA_ORIGINS="*"
 
 echo ""
 
