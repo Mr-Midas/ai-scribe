@@ -1,4 +1,4 @@
-const SYSTEM_PROMPT = `You are an expert Home Health OT Scribe for TherapyBoss EMR. Transform raw shorthand notes into Medicare-compliant SOAP notes.
+const SYSTEM_PROMPT = `You are an expert clinical documentation assistant. Transform raw shorthand notes into professional SOAP notes.
 
 FORMAT RULES:
 - Plain text only. No markdown, bold, or placeholders.
@@ -28,7 +28,7 @@ Objective:
 Assessment: Patient demonstrates impaired right upper extremity AROM and decreased independence with upper body dressing.
 Plan: Continue OT. Goal: Patient will perform upper body dressing with Standby Assist within 4 weeks.
 
-Transform the raw notes into a compliant TherapyBoss note.`;
+Transform the raw notes into a compliant clinical note.`;
 
 const OLLAMA_ENDPOINT = "http://localhost:11434/api/generate";
 const MODEL = "phi3"; // Switched to phi3 for significantly faster performance on 8GB Macs
@@ -113,7 +113,7 @@ function hideProgress() {
 // ── Theme Toggle ──────────────────────────────────────────────
 
 function loadTheme() {
-  const saved = localStorage.getItem("therapyNoteTheme");
+  const saved = localStorage.getItem("noteScribeTheme");
   const theme = saved || "light";
   document.documentElement.setAttribute("data-theme", theme);
   themeIcon.textContent = theme === "dark" ? "☀️" : "🌙";
@@ -123,7 +123,7 @@ themeToggle.addEventListener("click", () => {
   const current = document.documentElement.getAttribute("data-theme");
   const next = current === "dark" ? "light" : "dark";
   document.documentElement.setAttribute("data-theme", next);
-  localStorage.setItem("therapyNoteTheme", next);
+  localStorage.setItem("noteScribeTheme", next);
   themeIcon.textContent = next === "dark" ? "☀️" : "🌙";
 });
 
@@ -232,7 +232,7 @@ generateBtn.addEventListener("click", async () => {
     showProgress(100, "Done!");
     setTimeout(() => hideProgress(), 800);
 
-    showStatus("Note generated successfully. Review before copying to TherapyBoss.", "success");
+    showStatus("Note generated successfully. Review before copying to your EMR.", "success");
     
     // Save result to storage
     saveState();

@@ -1,12 +1,12 @@
-# TherapyNote AI Scribe
+# Note Scribe AI
 
-A local, private AI-powered Chrome Extension for home health occupational therapists. Converts raw shorthand notes into Medicare-compliant SOAP documentation using Ollama — **100% HIPAA compliant, nothing ever leaves the machine.**
+A local, private AI-powered Chrome Extension for clinical documentation. Converts raw shorthand notes into professional SOAP notes using Ollama — **100% local, nothing ever leaves the machine.**
 
 ## What It Does
 
 1. You type or paste messy shorthand notes into the extension
 2. The AI transforms them into a professional, legally defensible Daily Treatment Note
-3. You copy the output and paste it into TherapyBoss
+3. You copy the output and paste it into your EMR
 
 **No cloud APIs. No data sent anywhere. Everything runs on your machine.**
 
@@ -143,7 +143,7 @@ These steps are the same for macOS and Windows:
 5. Select the project folder:
    - **macOS:** `~/therapy-note-ai-scribe`
    - **Windows:** `C:\Users\<your-username>\Desktop\therapy-note-ai-scribe` (or wherever you cloned it)
-6. Pin the extension: click the puzzle-piece icon → pin "TherapyNote AI Scribe"
+6. Pin the extension: click the puzzle-piece icon → pin "Note Scribe AI"
 
 ### 6. Create a Desktop Shortcut (macOS Only)
 
@@ -152,7 +152,7 @@ cd ~/therapy-note-ai-scribe
 bash create_app.sh
 ```
 
-This creates **TherapyNote AI Scribe.app** on your Desktop. Drag it to your Dock for easy access.
+This creates **Note Scribe AI.app** on your Desktop. Drag it to your Dock for easy access.
 
 On Windows, you can pin the Chrome extension to your taskbar, or create a shortcut by right-clicking the Chrome icon on your taskbar after loading the extension.
 
@@ -160,13 +160,13 @@ On Windows, you can pin the Chrome extension to your taskbar, or create a shortc
 
 ## How to Use
 
-1. Click **TherapyNote AI Scribe** in your Dock/taskbar
+1. Click **Note Scribe AI** in your Dock/taskbar
 2. Chrome opens with the extension
 3. Select your note type: **Initial Evaluation** or **Treatment / Re-eval**
 4. Type or paste your raw notes
 5. Click **Generate Compliant Note**
 6. Watch the progress bar as the AI generates your note
-7. Review the output, click **Copy**, paste into TherapyBoss
+7. Review the output, click **Copy**, paste into your EMR
 
 **Keyboard shortcut:** `Ctrl+Enter` (Windows) or `Cmd+Enter` (Mac) in the notes field triggers generation.
 
@@ -214,7 +214,7 @@ The AI uses clinically accurate OT terminology:
 - **Zero cloud calls** — Ollama runs entirely on your local machine
 - **No data collection** — the extension has no analytics, telemetry, or tracking
 - **No external APIs** — communication is only between the extension and `localhost:11434`
-- **HIPAA compliant** — patient data never leaves the device
+- **100% local** — patient data never leaves the device
 
 ---
 
