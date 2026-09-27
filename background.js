@@ -1,6 +1,6 @@
 // Keep the Service Worker alive during long generations
 let keepAliveInterval;
-const CLOUD_PROXY_URL = "https://note-scribe-ai.yourdomain.workers.dev/api/cloud-proxy"; // REPLACE with your actual Cloudflare worker URL
+const CLOUD_PROXY_URL = "https://note-scribe-ai-proxy.ai-scribe.workers.dev/api/cloud-proxy";
 
 function startKeepAlive() {
   if (keepAliveInterval) return;
