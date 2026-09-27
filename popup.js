@@ -1,37 +1,28 @@
-const SYSTEM_PROMPT = `You are an expert clinical documentation assistant. Transform raw shorthand notes into professional SOAP notes.
+const SYSTEM_PROMPT = `You are a clinical documentation assistant. Convert shorthand notes into SOAP format.
 
-FORMAT RULES:
-- Plain text only. No markdown, bold, or placeholders.
-- Use SOAP headers only for sections with data.
-- If info is missing, omit it. Do not invent data.
+RULES:
+- Plain text. No markdown/placeholders.
+- Use headers ONLY if section has data. Omit missing info.
+- Language: Skilled ("Therapist facilitated", "Tactile cues for").
+- Include sets, reps, distances, assistance levels.
+- Tie interventions to functional goals.
 
-CLINICAL RULES:
-- Use skilled language: "Therapist facilitated...", "Instructed patient in...", "Tactile cues required for..."
-- Include exact sets, reps, distances, and assistance levels.
-- Tie every intervention to a functional goal.
+ASSIST LEVELS: Independent, Supervision (verbal/visual), Standby Assist/SBA (ready, no contact), Contact Guard Assist/CGA (light touch), Min A (75%+), Mod A (50-74%), Max A (25-49%), Total Assist (<25%).
 
-ASSISTANCE LEVELS (use exact terms): Independent, Supervision (verbal/visual only), Standby Assist/SBA (ready, no contact), Contact Guard Assist/CGA (light touch), Min A (patient 75%+), Mod A (patient 50-74%), Max A (patient 25-49%), Total Assist (patient <25%).
+EQUIPMENT: Reacher (NEVER "grabber"), Dressing Stick, Sock Aide, Leg Lifter, Shoe Horn, Built-up Handles, Universal Cuff, Dycem, Button Hook.
 
-ADAPTIVE EQUIPMENT: Reacher (NEVER "reacher wand" or "grabber"), Dressing Stick, Sock Aide, Leg Lifter, Long-handled Shoe Horn, Built-up Handles, Universal Cuff, Dycem Mat, Button Hook, Elastic Shoelaces.
+EVAL (type "initial-eval"): OBSERVATIONS ONLY. Baseline ROM, MMT (0-5), balance, assist levels. Document safety: hand placements, time, attempts, cues. No progress.
+TREATMENT (type "treatment"): Document progress. Compare assist levels (e.g., "Improved from Mod A to SBA"). Update goals.
 
-INITIAL EVAL (note type "initial-eval"): Document OBSERVATIONS ONLY. Include baseline ROM, strength (0-5 MMT), balance scores, assistance levels for each activity. Document safety: hand placements, time to complete tasks, number of attempts, verbal/visual cues. Do NOT document progress. Set goal as target assistance level (e.g., "Goal: Patient will [task] with [target level] within [timeframe]").
+CONTEXT: Adjust for diagnosis (Stroke, TBI, SCI, Ortho). Never use "independent" if unsafe.
 
-TREATMENT/RE-EVAL (note type "treatment"): Document progress since last session. Compare assistance levels (e.g., "Improved from Mod A to Standby Assist"). Note measurement changes. Update goals.
-
-CONTEXT-AWARE GOALS: Consider diagnosis (stroke lesion location, TBI cognition, SCI level, ortho weight-bearing). Never use "independent" if deficits make it unsafe.
-
-EXAMPLE - INITIAL EVAL:
-Subjective: Patient reports right shoulder pain at 5/10 and difficulty with upper body dressing.
+EXAMPLE EVAL:
+Subjective: R shoulder pain 5/10, difficulty dressing.
 Objective:
-- Therapeutic Exercise: Facilitated AROM of right upper extremity for 10 minutes. Forward flexion to 120 degrees, abduction to 90 degrees.
-- ADL Training: Instructed patient in upper body dressing with reacher. Patient required Mod A. Safety: Therapist placed hands at bilateral hips. 2 attempts to don shirt. Time: 8 minutes.
-Assessment: Patient demonstrates impaired right upper extremity AROM and decreased independence with upper body dressing.
-Plan: Continue OT. Goal: Patient will perform upper body dressing with Standby Assist within 4 weeks.
-
-Transform the raw notes into a compliant clinical note.`;
-
-const OLLAMA_ENDPOINT = "http://localhost:11434/api/generate";
-const MODEL = "phi3"; // Switched to phi3 for significantly faster performance on 8GB Macs
+- Exercise: Facilitated RUE AROM 10 mins. Flexion 120, Abd 90.
+- ADL: Instructed UB dressing with reacher. Mod A. Safety: Hands at hips. 2 attempts. Time: 8 min.
+Assessment: Impaired RUE AROM, decreased UB dressing independence.
+Plan: Continue OT. Goal: UB dressing with SBA in 4 weeks.`;
 
 const rawNotes = document.getElementById("rawNotes");
 const outputNotes = document.getElementById("outputNotes");
@@ -47,7 +38,7 @@ const progressBarFill = document.getElementById("progressBarFill");
 const progressStatus = document.getElementById("progressStatus");
 const noteTypeSelector = document.getElementById("noteTypeSelector");
 
-// ── State Persistence (Auto-Save/Restore) ───────────────────
+// ── State Persistence ───────────────────────────────────────
 
 async function saveState() {
   await chrome.storage.local.set({
@@ -59,62 +50,43 @@ async function saveState() {
 
 async function loadState() {
   const data = await chrome.storage.local.get(["savedRawNotes", "savedOutputNotes", "savedNoteType"]);
-  if (data.savedRawNotes) {
-    rawNotes.value = data.savedRawNotes;
-  }
+  if (data.savedRawNotes) rawNotes.value = data.savedRawNotes;
   if (data.savedOutputNotes) {
     outputNotes.value = data.savedOutputNotes;
-    if (data.savedOutputNotes.trim() !== "") {
-      outputSection.classList.add("visible");
-    }
+    if (data.savedOutputNotes.trim() !== "") outputSection.classList.add("visible");
   }
-  if (data.savedNoteType) {
-    setNoteType(data.savedNoteType);
-  }
+  if (data.savedNoteType) setNoteType(data.savedNoteType);
 }
 
-// Auto-save raw notes on every keystroke
 rawNotes.addEventListener("input", saveState);
 
-// ── Note Type Selector ──────────────────────────────────────
-
-let currentNoteType = "initial-eval";
-
-function setNoteType(type) {
-  currentNoteType = type;
-  noteTypeSelector.querySelectorAll(".note-type-btn").forEach(btn => {
-    btn.classList.toggle("active", btn.dataset.type === type);
-  });
-}
-
-noteTypeSelector.addEventListener("click", (e) => {
-  const btn = e.target.closest(".note-type-btn");
-  if (!btn) return;
-  setNoteType(btn.dataset.type);
-  saveState();
-});
-
-// ── Progress Bar ────────────────────────────────────────────
+// ── UI Helpers ──────────────────────────────────────────────
 
 function showProgress(percent, statusText) {
   progressContainer.classList.add("visible");
   progressBarFill.style.width = percent + "%";
-  progressBarFill.classList.add("active");
   progressStatus.textContent = statusText;
 }
 
 function hideProgress() {
   progressContainer.classList.remove("visible");
   progressBarFill.style.width = "0%";
-  progressBarFill.classList.remove("active");
   progressStatus.textContent = "";
 }
 
-// ── Theme Toggle ──────────────────────────────────────────────
+function showStatus(message, type) {
+  statusBar.textContent = message;
+  statusBar.className = `status-bar visible ${type}`;
+}
+
+function hideStatus() {
+  statusBar.className = "status-bar";
+}
+
+// ── Theme Logic ─────────────────────────────────────────────
 
 function loadTheme() {
-  const saved = localStorage.getItem("noteScribeTheme");
-  const theme = saved || "light";
+  const theme = localStorage.getItem("noteScribeTheme") || "light";
   document.documentElement.setAttribute("data-theme", theme);
   themeIcon.textContent = theme === "dark" ? "☀️" : "🌙";
 }
@@ -129,155 +101,100 @@ themeToggle.addEventListener("click", () => {
 
 loadTheme();
 
-// ── Status Bar ────────────────────────────────────────────────
+// ── Fallback UI ─────────────────────────────────────────────
 
-function showStatus(message, type) {
-  statusBar.textContent = message;
-  statusBar.className = `status-bar visible ${type}`;
-}
+function showFallbackUI(errorMessage, originalRequest) {
+  hideProgress();
+  const overlay = document.createElement("div");
+  overlay.style = "position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px;";
+  
+  overlay.innerHTML = `
+    <div style="background:var(--bg-secondary);padding:20px;border-radius:12px;text-align:center;max-width:300px;border:1px solid var(--border);">
+      <h3 style="margin-bottom:10px;font-size:16px;">Local AI Offline</h3>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:20px;">
+        ${errorMessage}<br><br>
+        Would you like to use our <b>Secure Cloud Backup</b> (Llama 3 70B)? It is faster and HIPAA-private.
+      </p>
+      <button id="useCloudBtn" class="btn btn-primary" style="width:100%;margin-bottom:10px;">Use Secure Cloud</button>
+      <button id="cancelFallbackBtn" class="btn btn-secondary" style="width:100%;">Cancel</button>
+    </div>
+  `;
+  
+  document.body.appendChild(overlay);
 
-function hideStatus() {
-  statusBar.className = "status-bar";
-}
-
-// ── Generate Note ─────────────────────────────────────────────
-
-generateBtn.addEventListener("click", async () => {
-  const notes = rawNotes.value.trim();
-
-  if (!notes) {
-    showStatus("Please enter your raw notes first.", "error");
-    return;
-  }
-
-  hideStatus();
-  outputSection.classList.remove("visible");
-  generateBtn.classList.add("loading");
-  generateBtn.disabled = true;
-  copyBtn.textContent = "📋 Copy";
-  copyBtn.classList.remove("copied");
-
-  // Build the user prompt with note type context
-  const noteTypeLabel = currentNoteType === "initial-eval"
-    ? "INITIAL EVALUATION"
-    : "TREATMENT / RE-EVALUATION";
-
-  const userPrompt = `Note Type: ${noteTypeLabel}\n\nRaw Notes:\n${notes}`;
-
-  try {
-    // Show progress stages
-    showProgress(10, "Connecting to Ollama...");
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 min timeout
-
-    // Simulate progress while waiting for Ollama
-    const progressInterval = setInterval(() => {
-      const current = parseInt(progressBarFill.style.width) || 10;
-      if (current < 90) {
-        const newWidth = Math.min(current + Math.random() * 8, 90);
-        progressBarFill.style.width = newWidth + "%";
-        if (newWidth < 25) {
-          progressStatus.textContent = "Sending notes to AI...";
-        } else if (newWidth < 50) {
-          progressStatus.textContent = "AI is analyzing your notes...";
-        } else if (newWidth < 75) {
-          progressStatus.textContent = "Generating compliant SOAP note...";
-        } else {
-          progressStatus.textContent = "Finalizing documentation...";
-        }
-      }
-    }, 2000);
-
-    showProgress(20, "Sending notes to AI...");
-
-    const response = await fetch(OLLAMA_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: MODEL,
-        stream: false,
-        system: SYSTEM_PROMPT,
-        prompt: userPrompt,
-        options: {
-          temperature: 0.3,
-          top_p: 0.9,
-          num_predict: 1024 // Reduced for faster generation on 8GB RAM
-        }
-      }),
-      signal: controller.signal
-    });
-
-    clearInterval(progressInterval);
-    clearTimeout(timeoutId);
-
-    showProgress(95, "Finalizing note...");
-
-    if (!response.ok) {
-      if (response.status === 403) {
-        throw new Error("Ollama blocked the request (403). Make sure Ollama is running with OLLAMA_ORIGINS=* (run: setx OLLAMA_ORIGINS \"*\" then restart Ollama).");
-      }
-      throw new Error(`Ollama responded with status ${response.status}`);
-    }
-
-    const data = await response.json();
-
-    if (!data.response || data.response.trim() === "") {
-      throw new Error("Ollama returned an empty response.");
-    }
-
-    outputNotes.value = data.response.trim();
-    outputSection.classList.add("visible");
-
-    showProgress(100, "Done!");
-    setTimeout(() => hideProgress(), 800);
-
-    showStatus("Note generated successfully. Review before copying to your EMR.", "success");
-    
-    // Save result to storage
-    saveState();
-  } catch (err) {
-    hideProgress();
-    let msg = err.message;
-    if (err.name === "AbortError") {
-      msg = "Request timed out. Ollama may be overloaded or the model is too slow. Try shorter notes or a faster model.";
-    } else if (err.name === "TypeError" && msg.includes("fetch")) {
-      msg = "Cannot connect to Ollama. Make sure Ollama is running (open Terminal, type: ollama serve).";
-    }
-    showStatus(`Error: ${msg}`, "error");
-  } finally {
+  document.getElementById("useCloudBtn").onclick = () => {
+    document.body.removeChild(overlay);
+    startGeneration("GENERATE_CLOUD", originalRequest);
+  };
+  document.getElementById("cancelFallbackBtn").onclick = () => {
+    document.body.removeChild(overlay);
     generateBtn.classList.remove("loading");
     generateBtn.disabled = false;
-  }
+  };
+}
+
+// ── Generation Logic ────────────────────────────────────────
+
+function startGeneration(type, originalRequest) {
+  outputNotes.value = "";
+  outputSection.classList.add("visible");
+  generateBtn.classList.add("loading");
+  generateBtn.disabled = true;
+  
+  showProgress(10, type === "GENERATE_CLOUD" ? "Connecting to Cloud..." : "Connecting to Local AI...");
+
+  const port = chrome.runtime.connect({ name: "ollama-stream" });
+  port.postMessage({ type, ...originalRequest });
+
+  port.onMessage.addListener((msg) => {
+    if (msg.type === "CHUNK") {
+      outputNotes.value += msg.text;
+      outputNotes.scrollTop = outputNotes.scrollHeight;
+      showProgress(50, "Generating...");
+    } else if (msg.type === "DONE") {
+      showProgress(100, "Done!");
+      setTimeout(() => hideProgress(), 800);
+      showStatus("Note generated successfully.", "success");
+      generateBtn.classList.remove("loading");
+      generateBtn.disabled = false;
+      saveState();
+      port.disconnect();
+    } else if (msg.type === "REQUEST_CLOUD_FALLBACK") {
+      showFallbackUI(msg.error, originalRequest);
+      port.disconnect();
+    } else if (msg.type === "ERROR") {
+      hideProgress();
+      showStatus(`Error: ${msg.error}`, "error");
+      generateBtn.classList.remove("loading");
+      generateBtn.disabled = false;
+      port.disconnect();
+    }
+  });
+}
+
+generateBtn.addEventListener("click", () => {
+  const notes = rawNotes.value.trim();
+  if (!notes) return showStatus("Please enter raw notes first.", "error");
+
+  hideStatus();
+  const noteTypeLabel = currentNoteType === "initial-eval" ? "INITIAL EVALUATION" : "TREATMENT / RE-EVALUATION";
+  const request = {
+    systemPrompt: SYSTEM_PROMPT,
+    prompt: `Note Type: ${noteTypeLabel}\n\nRaw Notes:\n${notes}`
+  };
+
+  startGeneration("GENERATE_NOTE", request);
 });
 
-// ── Copy to Clipboard ────────────────────────────────────────
+// ── Other Actions ───────────────────────────────────────────
 
 copyBtn.addEventListener("click", async () => {
   const text = outputNotes.value;
   if (!text) return;
-
-  try {
-    await navigator.clipboard.writeText(text);
-    copyBtn.textContent = "✓ Copied!";
-    copyBtn.classList.add("copied");
-    setTimeout(() => {
-      copyBtn.textContent = "📋 Copy";
-      copyBtn.classList.remove("copied");
-    }, 2000);
-  } catch {
-    outputNotes.select();
-    document.execCommand("copy");
-    copyBtn.textContent = "✓ Copied!";
-    copyBtn.classList.add("copied");
-    setTimeout(() => {
-      copyBtn.textContent = "📋 Copy";
-      copyBtn.classList.remove("copied");
-    }, 2000);
-  }
+  await navigator.clipboard.writeText(text);
+  copyBtn.textContent = "✓ Copied!";
+  setTimeout(() => copyBtn.textContent = "📋 Copy", 2000);
 });
-
-// ── Clear ─────────────────────────────────────────────────────
 
 clearBtn.addEventListener("click", async () => {
   rawNotes.value = "";
@@ -285,18 +202,19 @@ clearBtn.addEventListener("click", async () => {
   outputSection.classList.remove("visible");
   hideStatus();
   hideProgress();
-  rawNotes.focus();
   await saveState();
 });
 
-// ── Keyboard Shortcut ────────────────────────────────────────
-
-rawNotes.addEventListener("keydown", (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-    e.preventDefault();
-    generateBtn.click();
-  }
+noteTypeSelector.addEventListener("click", (e) => {
+  const btn = e.target.closest(".note-type-btn");
+  if (!btn) return;
+  currentNoteType = btn.dataset.type;
+  noteTypeSelector.querySelectorAll(".note-type-btn").forEach(b => b.classList.toggle("active", b === btn));
+  saveState();
 });
 
-// Init persistence
+rawNotes.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") generateBtn.click();
+});
+
 loadState();

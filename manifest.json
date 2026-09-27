@@ -11,8 +11,8 @@
     "service_worker": "background.js"
   },
   "host_permissions": [
-
-    "http://localhost:11434/*"
+    "http://localhost:11434/*",
+    "https://*.workers.dev/*"
   ],
   "action": {
     "default_popup": "popup.html",

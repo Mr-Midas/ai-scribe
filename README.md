@@ -218,6 +218,17 @@ The AI uses clinically accurate OT terminology:
 
 ---
 
+## Technical Design Considerations
+
+Building a local-first extension that talks to a local LLM is a solid approach for privacy, but it introduces some unique technical hurdles. Here are the main things you need to plan for in your system design:
+- **Ollama connectivity & CORS**: Chrome extensions have strict security policies, so you'll need to configure Ollama to accept requests from your extension's origin (usually by setting OLLAMA_ORIGINS to your extension ID or chrome-extension://*).
+- **Service Worker lifecycle**: Extension background scripts are ephemeral and will shut down during long LLM generations, meaning you'll need to handle model streaming via an offscreen document or keep-alive pings to prevent the connection from dropping mid-note.
+- **Error state UX**: You have to design for the inevitable moments when Ollama isn't running, the phi3 model isn't pulled yet, or the user's machine is heavily thermal throttling.
+- **Local storage limits**: Since you aren't using a cloud database, you'll need to rely on chrome.storage.local to cache raw notes, prompt templates, and draft history without hitting the default storage quotas.
+- **Model context window**: Shorthand notes are short, but highly detailed system prompts with examples (few-shot prompting) can eat up context quickly, so you'll need to optimize your clinical rules to keep generation speeds usable on average hardware
+
+---
+
 ## Requirements
 
 - macOS 11.0+ or Windows 10+
