@@ -179,10 +179,13 @@ async function generateNote() {
     showProgress(100, "Done!");
     setTimeout(() => hideProgress(), 800);
 
-    const validationMsg = data.validation?.valid
-      ? "Note generated successfully."
-      : `Warning: ${data.validation?.issues?.length || 0} issues found.`;
-    showStatus(validationMsg, data.validation?.valid ? "success" : "error");
+    if (data.validation?.issues?.length > 0) {
+      showStatus(`Note generated with ${data.validation.issues.length} issues after ${data.metadata?.attempts || 1} attempts.`, "error");
+    } else if (data.validation?.warnings?.length > 0) {
+      showStatus(`Note generated with ${data.validation.warnings.length} warnings.`, "error");
+    } else {
+      showStatus("Note generated successfully.", "success");
+    }
 
     saveState();
   } catch (err) {
