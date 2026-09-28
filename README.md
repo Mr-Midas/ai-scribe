@@ -229,6 +229,19 @@ Building a local-first extension that talks to a local LLM is a solid approach f
 
 ---
 
+## Enterprise API
+
+Note Scribe AI includes a REST API for EHR integration (TherapyBOSS, Kinnser). See [API.md](API.md) for full documentation.
+
+**Base URL:** `https://note-scribe-ai-api.thomelfin529.workers.dev`
+
+**Key Endpoints:**
+- `POST /api/v1/notes/generate` - Generate structured SOAP note
+- `POST /api/v1/notes/extract` - Extract discrete EHR fields
+- `POST /api/v1/notes/format` - Format for specific EHR (TherapyBOSS/Kinnser)
+- `POST /api/v1/notes/validate` - Validate clinical content
+- `POST /api/v1/webhooks/deliver` - Deliver to EHR webhooks
+
 ## Requirements
 
 - macOS 11.0+ or Windows 10+
