@@ -1,3 +1,5 @@
+const API_BASE = "https://note-scribe-ai-api.thomelfin529.workers.dev";
+
 const SYSTEM_PROMPT = `You are a clinical documentation assistant. Convert shorthand notes into SOAP format.
 
 RULES:
@@ -37,30 +39,32 @@ const progressContainer = document.getElementById("progressContainer");
 const progressBarFill = document.getElementById("progressBarFill");
 const progressStatus = document.getElementById("progressStatus");
 const noteTypeSelector = document.getElementById("noteTypeSelector");
+const ehrSelector = document.getElementById("ehrSelector");
 
-// ── State Persistence ───────────────────────────────────────
+let currentNoteType = "initial-eval";
+let currentEHR = "";
 
 async function saveState() {
   await chrome.storage.local.set({
     savedRawNotes: rawNotes.value,
     savedOutputNotes: outputNotes.value,
-    savedNoteType: currentNoteType
+    savedNoteType: currentNoteType,
+    savedEHR: currentEHR
   });
 }
 
 async function loadState() {
-  const data = await chrome.storage.local.get(["savedRawNotes", "savedOutputNotes", "savedNoteType"]);
+  const data = await chrome.storage.local.get(["savedRawNotes", "savedOutputNotes", "savedNoteType", "savedEHR"]);
   if (data.savedRawNotes) rawNotes.value = data.savedRawNotes;
   if (data.savedOutputNotes) {
     outputNotes.value = data.savedOutputNotes;
     if (data.savedOutputNotes.trim() !== "") outputSection.classList.add("visible");
   }
   if (data.savedNoteType) setNoteType(data.savedNoteType);
+  if (data.savedEHR) setEHR(data.savedEHR);
 }
 
 rawNotes.addEventListener("input", saveState);
-
-// ── UI Helpers ──────────────────────────────────────────────
 
 function showProgress(percent, statusText) {
   progressContainer.classList.add("visible");
@@ -83,8 +87,6 @@ function hideStatus() {
   statusBar.className = "status-bar";
 }
 
-// ── Theme Logic ─────────────────────────────────────────────
-
 function loadTheme() {
   const theme = localStorage.getItem("noteScribeTheme") || "light";
   document.documentElement.setAttribute("data-theme", theme);
@@ -99,101 +101,111 @@ themeToggle.addEventListener("click", () => {
   themeIcon.textContent = next === "dark" ? "☀️" : "🌙";
 });
 
-loadTheme();
-
-// ── Fallback UI ─────────────────────────────────────────────
-
-function showFallbackUI(errorMessage, originalRequest) {
-  hideProgress();
-  const overlay = document.createElement("div");
-  overlay.style = "position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px;";
-  
-  overlay.innerHTML = `
-    <div style="background:var(--bg-secondary);padding:20px;border-radius:12px;text-align:center;max-width:300px;border:1px solid var(--border);">
-      <h3 style="margin-bottom:10px;font-size:16px;">Local AI Offline</h3>
-      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:20px;">
-        ${errorMessage}<br><br>
-        Would you like to use our <b>Secure Cloud Backup</b> (Llama 3 70B)? It is faster and HIPAA-private.
-      </p>
-      <button id="useCloudBtn" class="btn btn-primary" style="width:100%;margin-bottom:10px;">Use Secure Cloud</button>
-      <button id="cancelFallbackBtn" class="btn btn-secondary" style="width:100%;">Cancel</button>
-    </div>
-  `;
-  
-  document.body.appendChild(overlay);
-
-  document.getElementById("useCloudBtn").onclick = () => {
-    document.body.removeChild(overlay);
-    startGeneration("GENERATE_CLOUD", originalRequest);
-  };
-  document.getElementById("cancelFallbackBtn").onclick = () => {
-    document.body.removeChild(overlay);
-    generateBtn.classList.remove("loading");
-    generateBtn.disabled = false;
-  };
+function setNoteType(type) {
+  currentNoteType = type;
+  noteTypeSelector.querySelectorAll(".note-type-btn").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.type === type);
+  });
 }
 
-// ── Generation Logic ────────────────────────────────────────
+function setEHR(ehr) {
+  currentEHR = ehr;
+  if (ehrSelector) {
+    ehrSelector.value = ehr;
+  }
+}
 
-function startGeneration(type, originalRequest) {
+noteTypeSelector.addEventListener("click", (e) => {
+  const btn = e.target.closest(".note-type-btn");
+  if (!btn) return;
+  setNoteType(btn.dataset.type);
+  saveState();
+});
+
+if (ehrSelector) {
+  ehrSelector.addEventListener("change", (e) => {
+    setEHR(e.target.value);
+    saveState();
+  });
+}
+
+async function generateNote() {
+  const notes = rawNotes.value.trim();
+  if (!notes) {
+    showStatus("Please enter raw notes first.", "error");
+    return;
+  }
+
+  hideStatus();
   outputNotes.value = "";
   outputSection.classList.add("visible");
   generateBtn.classList.add("loading");
   generateBtn.disabled = true;
-  
-  showProgress(10, type === "GENERATE_CLOUD" ? "Connecting to Cloud..." : "Connecting to Local AI...");
+  copyBtn.textContent = "📋 Copy";
+  copyBtn.classList.remove("copied");
 
-  const port = chrome.runtime.connect({ name: "ollama-stream" });
-  port.postMessage({ type, ...originalRequest });
+  showProgress(10, "Connecting...");
 
-  port.onMessage.addListener((msg) => {
-    if (msg.type === "CHUNK") {
-      outputNotes.value += msg.text;
-      outputNotes.scrollTop = outputNotes.scrollHeight;
-      showProgress(50, "Generating...");
-    } else if (msg.type === "DONE") {
-      showProgress(100, "Done!");
-      setTimeout(() => hideProgress(), 800);
-      showStatus("Note generated successfully.", "success");
-      generateBtn.classList.remove("loading");
-      generateBtn.disabled = false;
-      saveState();
-      port.disconnect();
-    } else if (msg.type === "REQUEST_CLOUD_FALLBACK") {
-      showFallbackUI(msg.error, originalRequest);
-      port.disconnect();
-    } else if (msg.type === "ERROR") {
-      hideProgress();
-      showStatus(`Error: ${msg.error}`, "error");
-      generateBtn.classList.remove("loading");
-      generateBtn.disabled = false;
-      port.disconnect();
+  const noteTypeLabel = currentNoteType === "initial-eval" ? "INITIAL EVALUATION" : "TREATMENT / RE-EVALUATION";
+
+  try {
+    showProgress(20, "Generating note...");
+
+    const response = await fetch(`${API_BASE}/api/v1/notes/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        raw_notes: notes,
+        note_type: currentNoteType,
+        target_ehr: currentEHR || undefined,
+        system_prompt: SYSTEM_PROMPT
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || `API error: ${response.status}`);
     }
-  });
+
+    showProgress(60, "Processing response...");
+
+    const data = await response.json();
+
+    if (data.note) {
+      outputNotes.value = data.note;
+      outputNotes.scrollTop = outputNotes.scrollHeight;
+    }
+
+    showProgress(100, "Done!");
+    setTimeout(() => hideProgress(), 800);
+
+    const validationMsg = data.validation?.valid
+      ? "Note generated successfully."
+      : `Warning: ${data.validation?.issues?.length || 0} issues found.`;
+    showStatus(validationMsg, data.validation?.valid ? "success" : "error");
+
+    saveState();
+  } catch (err) {
+    hideProgress();
+    showStatus(`Error: ${err.message}`, "error");
+  } finally {
+    generateBtn.classList.remove("loading");
+    generateBtn.disabled = false;
+  }
 }
 
-generateBtn.addEventListener("click", () => {
-  const notes = rawNotes.value.trim();
-  if (!notes) return showStatus("Please enter raw notes first.", "error");
-
-  hideStatus();
-  const noteTypeLabel = currentNoteType === "initial-eval" ? "INITIAL EVALUATION" : "TREATMENT / RE-EVALUATION";
-  const request = {
-    systemPrompt: SYSTEM_PROMPT,
-    prompt: `Note Type: ${noteTypeLabel}\n\nRaw Notes:\n${notes}`
-  };
-
-  startGeneration("GENERATE_NOTE", request);
-});
-
-// ── Other Actions ───────────────────────────────────────────
+generateBtn.addEventListener("click", generateNote);
 
 copyBtn.addEventListener("click", async () => {
   const text = outputNotes.value;
   if (!text) return;
   await navigator.clipboard.writeText(text);
   copyBtn.textContent = "✓ Copied!";
-  setTimeout(() => copyBtn.textContent = "📋 Copy", 2000);
+  copyBtn.classList.add("copied");
+  setTimeout(() => {
+    copyBtn.textContent = "📋 Copy";
+    copyBtn.classList.remove("copied");
+  }, 2000);
 });
 
 clearBtn.addEventListener("click", async () => {
@@ -205,16 +217,9 @@ clearBtn.addEventListener("click", async () => {
   await saveState();
 });
 
-noteTypeSelector.addEventListener("click", (e) => {
-  const btn = e.target.closest(".note-type-btn");
-  if (!btn) return;
-  currentNoteType = btn.dataset.type;
-  noteTypeSelector.querySelectorAll(".note-type-btn").forEach(b => b.classList.toggle("active", b === btn));
-  saveState();
-});
-
 rawNotes.addEventListener("keydown", (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") generateBtn.click();
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") generateNote();
 });
 
+loadTheme();
 loadState();

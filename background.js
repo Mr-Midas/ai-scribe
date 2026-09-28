@@ -1,6 +1,6 @@
 // Keep the Service Worker alive during long generations
 let keepAliveInterval;
-const CLOUD_PROXY_URL = "https://note-scribe-ai-proxy.ai-scribe.workers.dev/api/cloud-proxy";
+const CLOUD_PROXY_URL = "https://note-scribe-ai-api.thomelfin529.workers.dev/api/v1/notes/generate";
 
 function startKeepAlive() {
   if (keepAliveInterval) return;
