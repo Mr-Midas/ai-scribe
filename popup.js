@@ -1,4 +1,5 @@
 const API_BASE = "https://note-scribe-ai-api.thomelfin529.workers.dev";
+const DEFAULT_API_KEY = "nscrb_72889ea78923476fb19d0338";
 
 const SYSTEM_PROMPT = `You are a clinical documentation assistant. Convert shorthand notes into SOAP format.
 
@@ -151,9 +152,10 @@ async function generateNote() {
   try {
     showProgress(20, "Generating note...");
 
+    const apiKey = await chrome.storage.local.get("apiKey").then(r => r.apiKey || DEFAULT_API_KEY);
     const response = await fetch(`${API_BASE}/api/v1/notes/generate`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
       body: JSON.stringify({
         raw_notes: notes,
         note_type: currentNoteType,

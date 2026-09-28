@@ -3,5 +3,13 @@ main = "worker.js"
 compatibility_date = "2024-09-23"
 workers_dev = true
 
+[[kv_namespaces]]
+binding = "API_KEYS"
+id = "0ceff63b30274781abb15d5b9ab2bd0f"
+
+[[kv_namespaces]]
+binding = "RATE_LIMITS"
+id = "671abe51d25247739c153c83ca1ecbd9"
+
 [observability]
 enabled = true

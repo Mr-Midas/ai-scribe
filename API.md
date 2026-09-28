@@ -6,6 +6,23 @@ Enterprise-grade REST API for clinical documentation. Generates structured SOAP 
 
 **Base URL:** `https://note-scribe-ai-api.thomelfin529.workers.dev`
 
+## Authentication
+
+All endpoints (except `/health` and `/usage`) require an API key:
+
+```
+X-API-Key: your-api-key-here
+```
+
+**Your API key:** `nscrb_72889ea78923476fb19d0338` (premium tier — 1000 req/min)
+
+**Tiers:**
+| Tier | Rate Limit | Use Case |
+|------|-----------|----------|
+| standard | 100 req/min | Trial / evaluation |
+| premium | 1000 req/min | Production |
+| unlimited | No limit | Enterprise OEM |
+
 ## Features
 
 - Multi-model fallback chain (Groq → OpenRouter)

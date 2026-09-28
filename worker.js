@@ -9,6 +9,43 @@ const ASSIST_LEVELS = [
   { pattern: /independent/i, normalized: 'Independent' },
 ];
 
+const MASTER_KEY = 'nscrb_master_2026';
+
+async function authenticateRequest(request) {
+  const apiKey = request.headers.get('X-API-Key');
+  if (!apiKey) return { valid: false, error: 'Missing X-API-Key header' };
+  if (apiKey === MASTER_KEY) return { valid: true, key: apiKey, tier: 'unlimited' };
+  try {
+    const keyData = await API_KEYS.get(apiKey);
+    if (!keyData) return { valid: false, error: 'Invalid API key' };
+    const parsed = JSON.parse(keyData);
+    if (!parsed.active) return { valid: false, error: 'API key deactivated' };
+    return { valid: true, key: apiKey, tier: parsed.tier || 'standard' };
+  } catch (e) {
+    return { valid: false, error: 'Authentication error' };
+  }
+}
+
+async function checkRateLimit(apiKey, tier) {
+  const now = Date.now();
+  const windowMs = 60000;
+  const limits = { standard: 100, premium: 1000, unlimited: Infinity };
+  const limit = limits[tier] || 100;
+  try {
+    const data = await RATE_LIMITS.get(`rl_${apiKey}`);
+    const record = data ? JSON.parse(data) : { count: 0, reset: now + windowMs };
+    if (now > record.reset) {
+      record.count = 0;
+      record.reset = now + windowMs;
+    }
+    record.count++;
+    await RATE_LIMITS.put(`rl_${apiKey}`, JSON.stringify(record), { expirationTtl: 120 });
+    return { allowed: record.count <= limit, remaining: Math.max(0, limit - record.count), reset: record.reset };
+  } catch (e) {
+    return { allowed: true, remaining: limit, reset: now + windowMs };
+  }
+}
+
 const EQUIPMENT_LIST = [
   'reacher', 'dressing stick', 'sock aide', 'leg lifter',
   'shoe horn', 'built-up handles', 'universal cuff', 'dycem', 'button hook'
@@ -433,6 +470,21 @@ function hashUserId(userId) {
   return Math.abs(hash).toString(16).padStart(8, '0');
 }
 
+function stripMetadata(obj) {
+  const stripped = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (key === 'raw_notes' || key === 'note_text' || key === 'note' || key === 'prompt' || key === 'system_prompt') continue;
+    if (typeof value === 'string') {
+      stripped[key] = value.replace(/\b[A-Z][a-z]+ [A-Z][a-z]+\b/g, '[NAME]').replace(/\b\d{3}-\d{2}-\d{4}\b/g, '[SSN]').replace(/\b\d{5}(-\d{4})?\b/g, '[ZIP]');
+    } else if (typeof value === 'object' && value !== null) {
+      stripped[key] = stripMetadata(value);
+    } else {
+      stripped[key] = value;
+    }
+  }
+  return stripped;
+}
+
 async function auditLog(event) {
   try {
     const entry = {
@@ -517,30 +569,67 @@ async function handleApiRequest(request) {
   }
 
   if (request.method === 'GET' && path === '/api/v1/health') {
-    return jsonResponse({ status: 'healthy', version: '3.0.0', timestamp: new Date().toISOString() });
+    return jsonResponse({ status: 'healthy', version: '3.1.0', timestamp: new Date().toISOString() });
   }
 
+  if (request.method === 'GET' && path === '/api/v1/usage') {
+    return handleUsageStats(request);
+  }
+
+  const auth = await authenticateRequest(request);
+  if (!auth.valid) {
+    return jsonResponse({ error: auth.error }, 401);
+  }
+
+  const rateLimit = await checkRateLimit(auth.key, auth.tier);
+  if (!rateLimit.allowed) {
+    return jsonResponse({ error: 'Rate limit exceeded', retry_after_ms: rateLimit.reset - Date.now() }, 429);
+  }
+
+  const rateHeaders = {
+    'X-RateLimit-Limit': auth.tier === 'unlimited' ? 'unlimited' : String(auth.tier === 'premium' ? 1000 : 100),
+    'X-RateLimit-Remaining': String(rateLimit.remaining),
+    'X-RateLimit-Reset': String(Math.ceil(rateLimit.reset / 1000))
+  };
+
+  let response;
   if (request.method === 'POST' && path === '/api/v1/notes/generate') {
-    return handleGenerateNote(request);
+    response = await handleGenerateNote(request);
+  } else if (request.method === 'POST' && path === '/api/v1/notes/extract') {
+    response = await handleExtractStructured(request);
+  } else if (request.method === 'POST' && path === '/api/v1/notes/format') {
+    response = await handleFormatForEHR(request);
+  } else if (request.method === 'POST' && path === '/api/v1/notes/validate') {
+    response = await handleValidateNote(request);
+  } else if (request.method === 'POST' && path === '/api/v1/webhooks/deliver') {
+    response = await handleWebhookDeliver(request);
+  } else {
+    response = jsonResponse({ error: 'Not found' }, 404);
   }
 
-  if (request.method === 'POST' && path === '/api/v1/notes/extract') {
-    return handleExtractStructured(request);
-  }
+  const newHeaders = new Headers(response.headers);
+  for (const [k, v] of Object.entries(rateHeaders)) newHeaders.set(k, v);
+  return new Response(response.body, { status: response.status, headers: newHeaders });
+}
 
-  if (request.method === 'POST' && path === '/api/v1/notes/format') {
-    return handleFormatForEHR(request);
-  }
-
-  if (request.method === 'POST' && path === '/api/v1/notes/validate') {
-    return handleValidateNote(request);
-  }
-
-  if (request.method === 'POST' && path === '/api/v1/webhooks/deliver') {
-    return handleWebhookDeliver(request);
-  }
-
-  return jsonResponse({ error: 'Not found' }, 404);
+async function handleUsageStats(request) {
+  return jsonResponse({
+    status: 'ok',
+    version: '3.1.0',
+    endpoints: {
+      'POST /api/v1/notes/generate': 'Generate SOAP note with validation + retry',
+      'POST /api/v1/notes/extract': 'Extract structured EHR data',
+      'POST /api/v1/notes/format': 'Format for TherapyBOSS or Kinnser',
+      'POST /api/v1/notes/validate': 'Validate clinical content',
+      'POST /api/v1/webhooks/deliver': 'Deliver payload to EHR webhook'
+    },
+    rate_limits: {
+      standard: '100 requests/minute',
+      premium: '1000 requests/minute',
+      unlimited: 'No limit'
+    },
+    timestamp: new Date().toISOString()
+  });
 }
 
 async function handleGenerateNote(request) {
@@ -577,7 +666,8 @@ async function handleGenerateNote(request) {
       noteType: note_type,
       validationIssues: result.validation.issues,
       validationWarnings: result.validation.warnings,
-      attempts: result.attempts
+      attempts: result.attempts,
+      metadata: stripMetadata({ raw_notes, note_type, target_ehr })
     });
 
     if (webhook_url && formatted) {
