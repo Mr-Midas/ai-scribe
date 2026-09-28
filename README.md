@@ -235,8 +235,16 @@ Note Scribe AI includes a REST API for EHR integration (TherapyBOSS, Kinnser). S
 
 **Base URL:** `https://note-scribe-ai-api.thomelfin529.workers.dev`
 
+**Key Features:**
+- Multi-model fallback (Groq → OpenRouter) with automatic retry (up to 3 attempts)
+- Deep structured data extraction: Section GG, G-codes, CPT codes, ROM, MMT, assistance levels
+- EHR-specific formatters for TherapyBOSS and Kinnser
+- Webhook auto-delivery after generation
+- Zero-retention policy (no data stored)
+- Audit logging (metadata only, no PHI)
+
 **Key Endpoints:**
-- `POST /api/v1/notes/generate` - Generate structured SOAP note
+- `POST /api/v1/notes/generate` - Generate structured SOAP note with validation + retry
 - `POST /api/v1/notes/extract` - Extract discrete EHR fields
 - `POST /api/v1/notes/format` - Format for specific EHR (TherapyBOSS/Kinnser)
 - `POST /api/v1/notes/validate` - Validate clinical content
