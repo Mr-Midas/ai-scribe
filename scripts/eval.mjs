@@ -79,7 +79,7 @@ for (const fixture of RAW_NOTES) {
       const result = await generate(fixture);
       failures = check(fixture, result);
       meta = result.body.metadata || {};
-      if (failures.length && process.env.EVAL_VERBOSE) console.log(`\n--- ${fixture.id} ---\n${result.body.note}\n`);
+      if (failures.length && process.env.EVAL_VERBOSE) console.log(`\n--- ${fixture.id} ---\n${result.body.note ?? JSON.stringify(result.body)}\n`);
     } catch (e) {
       failures = [`error: ${e.message}`];
     }

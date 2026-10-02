@@ -38,7 +38,7 @@ function buildSystemPrompt(noteType, targetEHR) {
 
   const measures = 'Measurements (only when given in the raw notes): ROM as side + joint + motion + AROM/PROM + degrees, e.g. "R hip flexion AROM 0-90 degrees". Strength as MMT grade on the 0-5 scale with optional +/-, e.g. "R hip abduction 3+/5". Never write MMT grades as degrees or degrees as MMT grades.';
 
-  const assist = 'Assistance levels (use exact terms; percentages are the share of effort the PATIENT performs): Independent, Supervision (verbal/visual only), Standby Assist/SBA (ready, no contact), Contact Guard Assist/CGA (light touch), Min A (patient 75%+), Mod A (patient 50-74%), Max A (patient 25-49%), Total Assist (patient <25%). State the level per activity.';
+  const assist = 'Assistance levels (use exact terms; percentages are the share of effort the PATIENT performs): Independent, Supervision (verbal/visual only), Standby Assist/SBA (ready, no contact), Contact Guard Assist/CGA (light touch), Min A (patient 75%+), Mod A (patient 50-74%), Max A (patient 25-49%), Total Assist (patient <25%). State the level per activity. These percentages are definitions only: never write them in the note unless the raw notes give a percentage.';
 
   const equip = 'Adaptive equipment: Reacher (NEVER "grabber" or "reacher wand"), Dressing Stick, Sock Aide, Leg Lifter, Shoe Horn, Built-up Handles, Universal Cuff, Dycem, Button Hook.';
 
