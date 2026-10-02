@@ -74,6 +74,11 @@ async function generateWithRetry(systemPrompt, userPrompt, noteType, targetEHR, 
         modelUsed = `groq:${env.GROQ_MODEL || DEFAULT_GROQ_MODEL}`;
       } catch (e) {
         console.error(`Groq attempt ${attempt + 1} failed:`, e.message);
+        // Rate limited: wait as long as Groq asks (capped) before the next attempt
+        // rather than burning all retries in under a second.
+        if (e.retryAfterMs !== undefined && attempt < 2) {
+          await new Promise(resolve => setTimeout(resolve, Math.min(e.retryAfterMs, MAX_RATE_LIMIT_WAIT_MS)));
+        }
       }
     }
 
@@ -118,6 +123,8 @@ const DEFAULT_OPENROUTER_MODEL = 'meta-llama/llama-3.1-70b-instruct';
 const MODEL_TIMEOUT_MS = 20000;
 // Low temperature: notes should be a faithful rewrite, not creative writing.
 const MODEL_TEMPERATURE = 0.1;
+// Longest a request waits on a provider's rate limit before trying again.
+const MAX_RATE_LIMIT_WAIT_MS = 10000;
 
 async function callGroq(systemPrompt, userPrompt, apiKey, model) {
   const body = {
@@ -137,7 +144,14 @@ async function callGroq(systemPrompt, userPrompt, apiKey, model) {
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(MODEL_TIMEOUT_MS)
   });
-  if (!response.ok) throw new Error(`Groq ${response.status}: ${(await response.text()).slice(0, 200)}`);
+  if (!response.ok) {
+    const error = new Error(`Groq ${response.status}: ${(await response.text()).slice(0, 200)}`);
+    if (response.status === 429) {
+      const seconds = parseFloat(response.headers.get('retry-after'));
+      error.retryAfterMs = Number.isFinite(seconds) ? seconds * 1000 : 2000;
+    }
+    throw error;
+  }
   const data = await response.json();
   const content = data.choices?.[0]?.message?.content;
   if (!content) throw new Error('Groq returned empty content');

@@ -29,6 +29,7 @@ function buildSystemPrompt(noteType, targetEHR) {
     'Plain text only. No markdown or placeholders.',
     'Always use exactly these four headers, each on its own line: "Subjective:", "Objective:", "Assessment:", "Plan:".',
     'Never invent findings, measurements, scores or codes. If a section has no supporting data, write "Not documented this session." under its header.',
+    'Include every activity, observation and patient report in the raw notes; never drop documented content. Activities performed and help needed belong in Objective, even without measurements (e.g. "Worked on sit to stand; patient required assistance.").',
     'Use skilled language: "Therapist facilitated...", "Instructed patient in...", "Tactile cues required for..."',
     'Include sets, reps, distances, times and assistance levels exactly as written in the raw notes. If a value is not given, do not estimate it.',
     'Relate interventions to the functional goals stated in the raw notes. Do not create goals, timeframes, visit frequencies or diagnoses that are not stated.',
