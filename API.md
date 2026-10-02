@@ -19,6 +19,7 @@ Each client gets its own key from the Note Scribe administrator. Keep it secret:
 **Tiers:**
 | Tier | Rate Limit | Use Case |
 |------|-----------|----------|
+| demo | 10 req/min (shared) | Public testing key `nscrb_demo_a1d59ec7e179b6b9`. Made-up data only. |
 | standard | 100 req/min | Trial / evaluation |
 | premium | 1000 req/min | Production |
 | unlimited | No limit | Enterprise OEM |

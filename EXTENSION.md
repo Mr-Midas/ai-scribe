@@ -27,4 +27,4 @@ The extension is a small popup in Chrome that does the same thing as the [web ap
 
 ## Legacy local-AI code
 
-`background.js` and the scripts `setup.sh`, `setup.bat`, `reinstall_ollama.sh`, `diagnose_speed.sh` and `start_therapy_scribe.command` come from an earlier version that ran an AI model locally with Ollama. The current popup does not use them. [SETUP.md](SETUP.md) and [CLOUD_DEPLOYMENT.md](CLOUD_DEPLOYMENT.md) also describe that earlier version.
+The earlier version that ran an AI model locally with Ollama (its service worker, setup scripts and guides) is archived in the private repository [Mr-Midas/ai-scribe-ollama-legacy](https://github.com/Mr-Midas/ai-scribe-ollama-legacy).

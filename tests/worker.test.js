@@ -35,6 +35,16 @@ test('auth check accepts active keys and the master secret, rejects others', asy
   assert.equal((await call('/api/v1/auth/check')).status, 401);
 });
 
+test('the public demo key is limited to 10 requests per minute', async () => {
+  const e = env();
+  await e.API_KEYS.put('nscrb_demo_test', JSON.stringify({ active: true, tier: 'demo' }));
+  for (let i = 0; i < 10; i++) {
+    assert.equal((await call('/api/v1/auth/check', { 'X-API-Key': 'nscrb_demo_test' }, e)).status, 200);
+  }
+  const limited = await call('/api/v1/auth/check', { 'X-API-Key': 'nscrb_demo_test' }, e);
+  assert.equal(limited.status, 429);
+});
+
 test('there is no master key when the secret is not set', async () => {
   const e = env();
   delete e.MASTER_KEY;

@@ -42,11 +42,13 @@ async function authenticateRequest(request, env) {
   }
 }
 
+// Requests per minute per key. "demo" is the shared public testing key.
+const RATE_LIMITS_PER_MINUTE = { demo: 10, standard: 100, premium: 1000, unlimited: Infinity };
+
 async function checkRateLimit(apiKey, tier, env) {
   const now = Date.now();
   const windowMs = 60000;
-  const limits = { standard: 100, premium: 1000, unlimited: Infinity };
-  const limit = limits[tier] || 100;
+  const limit = RATE_LIMITS_PER_MINUTE[tier] || RATE_LIMITS_PER_MINUTE.standard;
   try {
     const data = await env.RATE_LIMITS.get(`rl_${apiKey}`);
     const record = data ? JSON.parse(data) : { count: 0, reset: now + windowMs };
@@ -326,7 +328,7 @@ async function handleApiRequest(request, env, ctx) {
   }
 
   const rateHeaders = {
-    'X-RateLimit-Limit': auth.tier === 'unlimited' ? 'unlimited' : String(auth.tier === 'premium' ? 1000 : 100),
+    'X-RateLimit-Limit': auth.tier === 'unlimited' ? 'unlimited' : String(RATE_LIMITS_PER_MINUTE[auth.tier] || RATE_LIMITS_PER_MINUTE.standard),
     'X-RateLimit-Remaining': String(rateLimit.remaining),
     'X-RateLimit-Reset': String(Math.ceil(rateLimit.reset / 1000))
   };
@@ -365,6 +367,7 @@ async function handleUsageStats(request) {
       'POST /api/v1/webhooks/deliver': 'Deliver payload to EHR webhook'
     },
     rate_limits: {
+      demo: '10 requests/minute (shared public testing key)',
       standard: '100 requests/minute',
       premium: '1000 requests/minute',
       unlimited: 'No limit'

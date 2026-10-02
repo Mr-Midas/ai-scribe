@@ -12,6 +12,19 @@ Note Scribe AI turns therapists' shorthand into SOAP notes. Every measurement, g
 | EHR companies | **REST API** at the same address. See [API.md](API.md). |
 | Chrome extension | Same service, in a browser popup. See [EXTENSION.md](EXTENSION.md). |
 
+## Try it
+
+Anyone can try Note Scribe with the public testing key:
+
+```
+nscrb_demo_a1d59ec7e179b6b9
+```
+
+- Use it in the web app, the extension, or the API.
+- It is shared by everyone who tries it, so it is limited to 10 notes per minute in total. If you see "Too many requests", wait a minute.
+- **Use made-up notes only.** Never enter real patient information with this key.
+- It can be turned off at any time. For regular use, ask for your own key.
+
 ## Using the web app (clinicians)
 
 1. Open https://note-scribe-ai-api.thomelfin529.workers.dev
@@ -39,7 +52,9 @@ npx wrangler kv key put <the-key> '{"active":true,"tier":"standard","label":"Jan
 npx wrangler kv key put <the-key> '{"active":false,"tier":"standard","label":"Jane Smith, OT"}' --binding API_KEYS --remote
 ```
 
-Never put a key in source code, documentation or a chat message.
+Never put a key in source code, documentation or a chat message. The only exception is the public testing key above, which is deliberately public, rate-limited and can be turned off.
+
+To turn off the public testing key, run the "turn a key off" command above with `nscrb_demo_a1d59ec7e179b6b9` and `"tier":"demo"`. To replace it, create a new key with `"tier":"demo"` and update the [Try it](#try-it) section.
 
 ## What it checks, and what it doesn't
 
