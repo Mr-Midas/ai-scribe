@@ -261,12 +261,26 @@ function validateClinicalContent(text, noteType, targetEHR) {
     if (!/Section GG|self-care|mobility/i.test(text)) {
       warnings.push('TherapyBOSS notes should reference Section GG functional abilities');
     }
+    if (!/goal|objective|target/i.test(text)) {
+      warnings.push('Section GG requires documented functional goals');
+    }
+    if (!/assist|supervision|independent|contact guard|standby/i.test(text)) {
+      warnings.push('Section GG requires assistance level documentation');
+    }
   }
 
   if (targetEHR === 'kinnser') {
     if (!/intake|assessment|plan|discharge/i.test(text)) {
       warnings.push('Kinnser notes should follow intake/assessment/plan structure');
     }
+  }
+
+  if (!/skin|integrity|wound|ulcer|breakdown/i.test(text)) {
+    warnings.push('Section M: Document skin integrity status');
+  }
+
+  if (!/G\d{4,5}/.test(text) && !/functional limitation/i.test(text)) {
+    warnings.push('G-code functional limitation reporting recommended');
   }
 
   return { valid: issues.length === 0, issues, warnings };
@@ -379,9 +393,9 @@ async function callOpenRouter(systemPrompt, userPrompt, apiKey) {
 }
 
 function formatForEHR(structured, targetEHR) {
-  if (targetEhr === 'therapyboss') return formatTherapyBOSS(structured);
-  if (targetEhr === 'kinnser') return formatKinnser(structured);
-  throw new Error(`Unsupported EHR: ${targetEhr}`);
+  if (targetEHR === 'therapyboss') return formatTherapyBOSS(structured);
+  if (targetEHR === 'kinnser') return formatKinnser(structured);
+  throw new Error(`Unsupported EHR: ${targetEHR}`);
 }
 
 function formatTherapyBOSS(data) {
@@ -653,7 +667,7 @@ async function handleGenerateNote(request) {
     }
 
     const structured = extractStructuredData(result.note, note_type);
-    const formatted = target_ehr ? formatForEHR(structured, targetEhr) : null;
+    const formatted = target_ehr ? formatForEHR(structured, target_ehr) : null;
 
     const duration = Date.now() - startTime;
 
