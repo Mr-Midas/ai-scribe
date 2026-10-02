@@ -11,12 +11,12 @@ const ASSIST_LEVELS = [
 
 const MASTER_KEY = 'nscrb_master_2026';
 
-async function authenticateRequest(request) {
+async function authenticateRequest(request, env) {
   const apiKey = request.headers.get('X-API-Key');
   if (!apiKey) return { valid: false, error: 'Missing X-API-Key header' };
   if (apiKey === MASTER_KEY) return { valid: true, key: apiKey, tier: 'unlimited' };
   try {
-    const keyData = await API_KEYS.get(apiKey);
+    const keyData = await env.API_KEYS.get(apiKey);
     if (!keyData) return { valid: false, error: 'Invalid API key' };
     const parsed = JSON.parse(keyData);
     if (!parsed.active) return { valid: false, error: 'API key deactivated' };
@@ -26,20 +26,20 @@ async function authenticateRequest(request) {
   }
 }
 
-async function checkRateLimit(apiKey, tier) {
+async function checkRateLimit(apiKey, tier, env) {
   const now = Date.now();
   const windowMs = 60000;
   const limits = { standard: 100, premium: 1000, unlimited: Infinity };
   const limit = limits[tier] || 100;
   try {
-    const data = await RATE_LIMITS.get(`rl_${apiKey}`);
+    const data = await env.RATE_LIMITS.get(`rl_${apiKey}`);
     const record = data ? JSON.parse(data) : { count: 0, reset: now + windowMs };
     if (now > record.reset) {
       record.count = 0;
       record.reset = now + windowMs;
     }
     record.count++;
-    await RATE_LIMITS.put(`rl_${apiKey}`, JSON.stringify(record), { expirationTtl: 120 });
+    await env.RATE_LIMITS.put(`rl_${apiKey}`, JSON.stringify(record), { expirationTtl: 120 });
     return { allowed: record.count <= limit, remaining: Math.max(0, limit - record.count), reset: record.reset };
   } catch (e) {
     return { allowed: true, remaining: limit, reset: now + windowMs };
@@ -202,17 +202,20 @@ function codeDescription(code) {
 }
 
 function parseSOAP(text) {
-  const sections = {};
-  const patterns = {
-    subjective: /Subjective[:\s]*([\s\S]*?)(?=Objective|Assessment|Plan|$)/i,
-    objective: /Objective[:\s]*([\s\S]*?)(?=Subjective|Assessment|Plan|$)/i,
-    assessment: /Assessment[:\s]*([\s\S]*?)(?=Subjective|Objective|Plan|$)/i,
-    plan: /Plan[:\s]*([\s\S]*?)(?=Subjective|Objective|Assessment|$)/i
-  };
-  for (const [key, pattern] of Object.entries(patterns)) {
-    const match = text.match(pattern);
-    if (match) sections[key] = match[1].trim();
+  const sections = { subjective: '', objective: '', assessment: '', plan: '' };
+  const keyByLetter = { S: 'subjective', O: 'objective', A: 'assessment', P: 'plan' };
+  const headerRe = /^\s*(S|O|A|P|Subjective|Objective|Assessment|Plan)\s*[:.]\s*(.*)$/i;
+  let current = null;
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(headerRe);
+    if (m) {
+      current = keyByLetter[(m[1] || '')[0].toUpperCase()];
+      if (m[2] && current) sections[current] += m[2].trim() + '\n';
+    } else if (current) {
+      sections[current] += line + '\n';
+    }
   }
+  for (const key of Object.keys(sections)) sections[key] = sections[key].trim();
   return sections;
 }
 
@@ -220,10 +223,10 @@ function validateClinicalContent(text, noteType, targetEHR) {
   const issues = [];
   const warnings = [];
 
-  if (!/Subjective[:\s]/i.test(text)) issues.push('Missing Subjective section');
-  if (!/Objective[:\s]/i.test(text)) issues.push('Missing Objective section');
-  if (!/Assessment[:\s]/i.test(text)) issues.push('Missing Assessment section');
-  if (!/Plan[:\s]/i.test(text)) issues.push('Missing Plan section');
+  if (!/(Subjective|^|\n)\s*S\s*[:.]/im.test(text) && !/Subjective\s*[:.]/i.test(text)) issues.push('Missing Subjective section');
+  if (!/(^|\n)\s*O\s*[:.]/im.test(text) && !/Objective\s*[:.]/i.test(text)) issues.push('Missing Objective section');
+  if (!/(^|\n)\s*A\s*[:.]/im.test(text) && !/Assessment\s*[:.]/i.test(text)) issues.push('Missing Assessment section');
+  if (!/(^|\n)\s*P\s*[:.]/im.test(text) && !/Plan\s*[:.]/i.test(text)) issues.push('Missing Plan section');
 
   const hasAssistLevel = ASSIST_LEVELS.some(({ pattern }) => pattern.test(text));
   if (!hasAssistLevel) issues.push('No assistance level documented');
@@ -297,9 +300,9 @@ function buildRetryPrompt(originalPrompt, validation, noteType) {
   return `${originalPrompt}\n\nIMPORTANT CORRECTIONS NEEDED:\n${feedback.join('\n')}\n\nRegenerate the complete SOAP note with these corrections.`;
 }
 
-async function generateWithRetry(systemPrompt, userPrompt, noteType, targetEHR) {
-  const groqKey = CLOUDFLARE_ENV.GROQ_API_KEY;
-  const openrouterKey = CLOUDFLARE_ENV.OPENROUTER_API_KEY;
+async function generateWithRetry(systemPrompt, userPrompt, noteType, targetEHR, env) {
+  const groqKey = env.GROQ_API_KEY;
+  const openrouterKey = env.OPENROUTER_API_KEY;
 
   let currentPrompt = userPrompt;
   let lastNote = null;
@@ -499,7 +502,7 @@ function stripMetadata(obj) {
   return stripped;
 }
 
-async function auditLog(event) {
+async function auditLog(event, env) {
   try {
     const entry = {
       timestamp: new Date().toISOString(),
@@ -515,7 +518,7 @@ async function auditLog(event) {
       attempts: event.attempts || null
     };
 
-    const logUrl = CLOUDFLARE_ENV.AUDIT_LOG_URL;
+    const logUrl = env?.AUDIT_LOG_URL;
     if (logUrl) {
       await fetch(logUrl, {
         method: 'POST',
@@ -574,7 +577,7 @@ function jsonResponse(data, status = 200) {
   });
 }
 
-async function handleApiRequest(request) {
+async function handleApiRequest(request, env) {
   const url = new URL(request.url);
   const path = url.pathname;
 
@@ -590,12 +593,12 @@ async function handleApiRequest(request) {
     return handleUsageStats(request);
   }
 
-  const auth = await authenticateRequest(request);
+  const auth = await authenticateRequest(request, env);
   if (!auth.valid) {
     return jsonResponse({ error: auth.error }, 401);
   }
 
-  const rateLimit = await checkRateLimit(auth.key, auth.tier);
+  const rateLimit = await checkRateLimit(auth.key, auth.tier, env);
   if (!rateLimit.allowed) {
     return jsonResponse({ error: 'Rate limit exceeded', retry_after_ms: rateLimit.reset - Date.now() }, 429);
   }
@@ -608,7 +611,7 @@ async function handleApiRequest(request) {
 
   let response;
   if (request.method === 'POST' && path === '/api/v1/notes/generate') {
-    response = await handleGenerateNote(request);
+    response = await handleGenerateNote(request, env);
   } else if (request.method === 'POST' && path === '/api/v1/notes/extract') {
     response = await handleExtractStructured(request);
   } else if (request.method === 'POST' && path === '/api/v1/notes/format') {
@@ -646,7 +649,7 @@ async function handleUsageStats(request) {
   });
 }
 
-async function handleGenerateNote(request) {
+async function handleGenerateNote(request, env) {
   const startTime = Date.now();
   try {
     const body = await request.json();
@@ -660,7 +663,7 @@ async function handleGenerateNote(request) {
     const noteTypeLabel = note_type === 'initial-eval' ? 'INITIAL EVALUATION' : 'TREATMENT / RE-EVALUATION';
     const userPrompt = `Note Type: ${noteTypeLabel}\n\nRaw Notes:\n${raw_notes}`;
 
-    const result = await generateWithRetry(prompt, userPrompt, note_type, target_ehr);
+    const result = await generateWithRetry(prompt, userPrompt, note_type, target_ehr, env);
 
     if (!result.note) {
       return jsonResponse({ error: 'All models failed after retries' }, 500);
@@ -682,7 +685,7 @@ async function handleGenerateNote(request) {
       validationWarnings: result.validation.warnings,
       attempts: result.attempts,
       metadata: stripMetadata({ raw_notes, note_type, target_ehr })
-    });
+    }, env);
 
     if (webhook_url && formatted) {
       deliverWebhook(webhook_url, formatted, webhook_secret).catch(e =>
@@ -758,6 +761,8 @@ async function handleWebhookDeliver(request) {
   }
 }
 
-addEventListener('fetch', event => {
-  event.respondWith(handleApiRequest(event.request));
-});
+export default {
+  fetch(request, env) {
+    return handleApiRequest(request, env);
+  }
+};
