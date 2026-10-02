@@ -171,6 +171,32 @@ test('values from the new fixtures cannot be reused for another measure', () => 
   assert.deepEqual(findUngroundedValues('Knee flexion 150 degrees. Ambulated 10 minutes.', raw('gait-distance-date')).sort(), ['10 minutes', '150 degrees']);
 });
 
+test('a second AROM/PROM value on the same line is extracted', () => {
+  const s = extractStructuredData('R shoulder flexion AROM 0-120, PROM 0-150 degrees.', 'initial-eval');
+  assert.deepEqual(s.functional_abilities.rom_measurements.map(m => [m.side, m.joint, m.movement, m.type, m.start_degrees, m.degrees]), [
+    ['R', 'shoulder', 'flexion', 'AROM', 0, 120],
+    ['R', 'shoulder', 'flexion', 'PROM', 0, 150]
+  ]);
+});
+
+test('ROM and MMT values must match the documented side, joint, motion and AROM/PROM', () => {
+  const hip = raw('hip-ub-dressing'); // R hip flex 90 deg, abd 30 deg, IR 20 deg. MMT hip flex 3/5, abd 2/5.
+  assert.deepEqual(findUngroundedValues('R hip flexion 90 degrees, abduction 30 degrees, internal rotation 20 degrees. Hip flexion 3/5, abduction 2/5.', hip), []);
+  assert.deepEqual(findUngroundedValues('90 degrees of R hip flexion.', hip), []);
+  assert.deepEqual(findUngroundedValues('R hip flexion 30 degrees, abduction 90 degrees.', hip).sort(), ['30 degrees', '90 degrees']);
+  assert.deepEqual(findUngroundedValues('L hip flexion 90 degrees.', hip), ['90 degrees']);
+  assert.deepEqual(findUngroundedValues('R knee flexion 90 degrees.', hip), ['90 degrees']);
+  assert.deepEqual(findUngroundedValues('Hip flexion 2/5, abduction 3/5.', hip), ['2/5', '3/5']);
+
+  const stroke = raw('stroke-initial-eval'); // R shoulder flex AROM 0-85, PROM 0-140.
+  assert.deepEqual(findUngroundedValues('R shoulder flexion AROM 0-85 degrees, PROM 0-140 degrees.', stroke), []);
+  assert.deepEqual(findUngroundedValues('R shoulder flexion PROM 0-85 degrees.', stroke), ['0-85 degrees']);
+
+  // Structured fields go to the EHR, so a swapped value is dropped there too.
+  const s = extractStructuredData('R hip flexion 30 degrees. R hip abduction 30 degrees.', 'treatment', hip);
+  assert.deepEqual(s.functional_abilities.rom_measurements.map(m => m.movement), ['abduction']);
+});
+
 test('findBillingCodes catches every code in a list', () => {
   assert.deepEqual(findBillingCodes('CPT 97112, 97110 and 97530'), ['97112', '97110', '97530']);
   assert.deepEqual(findBillingCodes('G8978 reported'), ['G8978']);

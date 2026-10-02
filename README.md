@@ -256,7 +256,7 @@ AI models sometimes add details that sound clinical but were never documented. E
 
 | Check | What happens |
 |-------|--------------|
-| **Every value must come from the raw notes, for the same measure.** Each number is read with what it measures (MMT grade, ROM degrees, sets, reps, distance, time, frequency, pain score, age, date, stage/grade) and must match a value the clinician wrote for that same measure, so "3/5" in the raw notes does not allow "3 sets". Equivalent wording is accepted (1 hour = 60 minutes, ft = feet, "three" = 3, BID = twice daily). Assist levels and Section GG codes must match a documented assist level. | The note is regenerated with the invented values named. If they persist after 3 attempts, the response has `review_required: true`. |
+| **Every value must come from the raw notes, for the same measure.** Each number is read with what it measures (MMT grade, ROM degrees, sets, reps, distance, time, frequency, pain score, age, date, stage/grade) and must match a value the clinician wrote for that same measure, so "3/5" in the raw notes does not allow "3 sets". ROM and MMT values must also match the documented side, joint, motion and AROM/PROM, so a grade or angle moved to another muscle is rejected. Equivalent wording is accepted (1 hour = 60 minutes, ft = feet, "three" = 3, BID = twice daily). Assist levels and Section GG codes must match a documented assist level. | The note is regenerated with the invented values named. If they persist after 3 attempts, the response has `review_required: true`. |
 | **No invented billing codes.** CPT, HCPCS and G-codes not present in `raw_notes` | Same as above. (Medicare functional limitation G-codes were discontinued on 1/1/2019 and are never requested.) |
 | **All four SOAP sections present.** Full (`Subjective:`) or abbreviated (`S:`) headers | Same as above. Empty sections read "Not documented this session." |
 | **Structured fields are grounded.** ROM degrees and MMT grades not documented as ROM / MMT in `raw_notes` | Dropped from `structured` / `formatted`, so they never reach an EHR field. |
@@ -270,8 +270,10 @@ Set these on the Cloudflare Worker (Dashboard → Workers & Pages → `note-scri
 
 | Name | Required | Purpose |
 |------|----------|---------|
-| `GROQ_API_KEY` | One of these two | Primary model provider |
-| `OPENROUTER_API_KEY` | One of these two | Fallback model provider |
+| `MASTER_KEY` | No | Unlimited-tier API key, set only as a secret (`npx wrangler secret put MASTER_KEY`). With no secret set, there is no master key. Never commit it. |
+| `GROQ_API_KEY` | Yes | Model provider |
+| `OPENROUTER_API_KEY` | No | Fallback model provider, only used when `OPENROUTER_FALLBACK` is `enabled` |
+| `OPENROUTER_FALLBACK` | No | Set to `enabled` to send notes to OpenRouter when Groq fails. Off by default because OpenRouter forwards to many upstream providers, so a HIPAA BAA can't cover them all. |
 | `GROQ_MODEL` | No | Override the Groq model (default `openai/gpt-oss-120b`) |
 | `OPENROUTER_MODEL` | No | Override the OpenRouter model (default `meta-llama/llama-3.1-70b-instruct`) |
 | `AUDIT_LOG_URL` | No | Endpoint that receives metadata-only audit events |
@@ -292,7 +294,7 @@ npx wrangler deploy
 - **Unit tests** (`npm test`): parsing, extraction and every safeguard above, with no network or API keys needed. Runs automatically on every push via GitHub Actions.
 - **Live evaluation** (`npm run eval`): sends every sample note in `tests/fixtures.js` through the real `/generate` pipeline and fails if any output has invented values, invented codes, missing sections, or `review_required`.
   - Against the models directly: `GROQ_API_KEY=... OPENROUTER_API_KEY=... npm run eval`
-  - Against the deployed API: `EVAL_BASE_URL=https://note-scribe-ai-api.thomelfin529.workers.dev EVAL_API_KEY=nscrb_... npm run eval`
+  - Against the deployed API: `EVAL_BASE_URL=https://note-scribe-ai-api.thomelfin529.workers.dev EVAL_API_KEY=nscrb_... npm run eval` (or `EVAL_API_KEY_FILE=<path>` to read the key from a file)
   - `EVAL_RUNS=3` repeats each note to measure consistency. `EVAL_VERBOSE=1` prints failing notes.
   - In GitHub Actions it runs when `GROQ_API_KEY` / `OPENROUTER_API_KEY` are added under the repo's Settings → Secrets and variables → Actions.
 
@@ -300,7 +302,7 @@ Add a fixture to `tests/fixtures.js` whenever a customer reports a bad note, so 
 
 ### Compliance note
 
-Raw notes sent to this API are forwarded to the configured model provider. Before processing real patient data (PHI), each provider in the chain must be covered by a signed HIPAA Business Associate Agreement (BAA), and its data-retention terms must be confirmed. EHR customers will ask for this. OpenRouter forwards requests to many different underlying providers, which makes BAA coverage hard to guarantee. HIPAA-eligible options include the major cloud AI platforms (AWS Bedrock, Azure, Google Vertex AI) and model vendors' enterprise APIs that offer a BAA.
+Raw notes sent to this API are forwarded to the configured model provider. Before processing real patient data (PHI), each provider in the chain must be covered by a signed HIPAA Business Associate Agreement (BAA), and its data-retention terms must be confirmed. EHR customers will ask for this. OpenRouter forwards requests to many different underlying providers, which makes BAA coverage hard to guarantee, so the OpenRouter fallback is off unless `OPENROUTER_FALLBACK=enabled`. HIPAA-eligible options include the major cloud AI platforms (AWS Bedrock, Azure, Google Vertex AI) and model vendors' enterprise APIs that offer a BAA.
 
 ## Requirements
 

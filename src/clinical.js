@@ -96,12 +96,16 @@ function extractStructuredData(noteText, noteType, sourceNotes) {
   if (sourceNotes) {
     // Structured fields go straight into EHR records, so a measurement the model
     // added on its own is dropped here even if it slipped past validation.
-    const romValues = groundedValues(sourceNotes, 'rom');
-    const mmtLabels = groundedValues(sourceNotes, 'mmt');
-    structured.functional_abilities.rom_measurements = structured.functional_abilities.rom_measurements
-      .filter(m => romValues.includes(Math.abs(m.degrees)) && (m.start_degrees === null || romValues.includes(Math.abs(m.start_degrees))));
-    structured.functional_abilities.strength_grades = structured.functional_abilities.strength_grades
-      .filter(m => mmtLabels.includes(m.label));
+    const rawFacts = extractFacts(sourceNotes).facts;
+    const grounded = (type, value, site) => isGrounded({ readings: [{ type, value, site }] }, rawFacts);
+    structured.functional_abilities.rom_measurements = structured.functional_abilities.rom_measurements.filter(m => {
+      const site = { side: m.side, joint: m.joint, motion: siteIn(m.movement).motion, mode: m.type };
+      return grounded('rom', Math.abs(m.degrees), site) && (m.start_degrees === null || grounded('rom', Math.abs(m.start_degrees), site));
+    });
+    structured.functional_abilities.strength_grades = structured.functional_abilities.strength_grades.filter(m => {
+      const site = { ...siteIn(m.muscle_group || ''), side: m.side, mode: null };
+      return grounded('mmt', m.label, site);
+    });
   }
 
   const timeMatch = noteText.match(/Time[:\s]+(\d+)\s*min/i);
@@ -186,6 +190,10 @@ function normalizeSide(side) {
   return 'B';
 }
 
+// A further measurement of the same motion, e.g. the ", PROM 0-150" in
+// "R shoulder flexion AROM 0-120, PROM 0-150".
+const ROM_CONTINUATION_RE = /\s*[,;/]?\s*(?:and\s+)?\(?(AROM|PROM|AAROM)\)?[:\s]*(?:(-?\d{1,3})\s*(?:-|–|to)\s*)?(-?\d{1,3})(?![\d.]|\s*[+-]?\s*\/\s*5)\s*(°|deg(?:rees)?\b)?/iy;
+
 function extractROM(text) {
   const results = [];
   for (const m of String(text || '').matchAll(ROM_RE)) {
@@ -198,14 +206,30 @@ function extractROM(text) {
     const lineEnd = m.input.indexOf('\n', m.index);
     const line = m.input.slice(lineStart, lineEnd === -1 ? undefined : lineEnd);
     if (!unit && !type && from === undefined && !/\bROM\b|range of motion/i.test(line)) continue;
-    results.push({
+    const site = {
       side: normalizeSide(side),
       joint: joint ? joint.toLowerCase() : null,
-      movement: movement.toLowerCase(),
+      movement: movement.toLowerCase()
+    };
+    results.push({
+      ...site,
       type: type ? type.toUpperCase() : null,
       start_degrees: from !== undefined ? parseInt(from, 10) : null,
       degrees
     });
+    ROM_CONTINUATION_RE.lastIndex = m.index + m[0].length;
+    let next;
+    while ((next = ROM_CONTINUATION_RE.exec(m.input)) !== null) {
+      const [, nextType, nextFrom, nextTo] = next;
+      if (Math.abs(parseInt(nextTo, 10)) <= 180) {
+        results.push({
+          ...site,
+          type: nextType.toUpperCase(),
+          start_degrees: nextFrom !== undefined ? parseInt(nextFrom, 10) : null,
+          degrees: parseInt(nextTo, 10)
+        });
+      }
+    }
   }
   return results;
 }
@@ -349,6 +373,76 @@ function normalizeYear(year) {
   return y < 100 ? 2000 + y : y;
 }
 
+// Body site of an ROM or MMT value: side, joint, motion and (ROM only) AROM/PROM.
+// Clinicians write "R hip flex 90 deg, abd 30 deg", so side and joint carry over
+// within a sentence, while the motion and mode are the last ones before the value.
+const SITE_SIDE_RE = /\b(right|left|bilateral|bilat|R|L|B)\b/gi;
+const SITE_JOINT_RE = /\b(shoulder|elbow|wrist|forearm|hand|hip|knee|ankle|cervical|lumbar|trunk|thumb|finger|digit)s?\b/gi;
+const SITE_MOTIONS = [
+  ['plantarflexion', String.raw`plantar\s*flex(?:ion)?|plantarflexion|PF`],
+  ['dorsiflexion', String.raw`dorsi\s*flex(?:ion)?|DF`],
+  ['internal rotation', String.raw`int(?:ernal)?\.?\s*rot(?:ation)?|IR`],
+  ['external rotation', String.raw`ext(?:ernal)?\.?\s*rot(?:ation)?|ER`],
+  ['radial deviation', String.raw`rad(?:ial)?\.?\s*dev(?:iation)?`],
+  ['ulnar deviation', String.raw`uln(?:ar)?\.?\s*dev(?:iation)?`],
+  ['flexion', String.raw`flex(?:ion|ors?)?`],
+  ['extension', String.raw`ext(?:ension|ensors?)?`],
+  ['abduction', String.raw`abd(?:uction|uctors?)?`],
+  ['adduction', String.raw`add(?:uction|uctors?)?`],
+  ['supination', String.raw`sup(?:ination|inators?)?`],
+  ['pronation', String.raw`pron(?:ation|ators?)?`],
+  ['inversion', String.raw`inv(?:ersion)?`],
+  ['eversion', String.raw`ev(?:ersion)?`],
+  ['rotation', 'rotation'],
+  ['grip', 'grip'],
+  ['pinch', 'pinch']
+];
+const SITE_MOTION_RE = new RegExp(SITE_MOTIONS.map(([, re]) => String.raw`\b(${re})\b`).join('|'), 'gi');
+const SITE_MODE_RE = /\b(AAROM|AROM|PROM)\b/gi;
+const SITE_BOUNDARY_RE = /[.;\n](?!\d)/g;
+
+function lastMatch(re, text) {
+  let last = null;
+  for (const m of text.matchAll(re)) last = m;
+  return last;
+}
+
+function siteIn(text) {
+  const side = lastMatch(SITE_SIDE_RE, text);
+  const joint = lastMatch(SITE_JOINT_RE, text);
+  const motion = lastMatch(SITE_MOTION_RE, text);
+  // AROM/PROM only applies when it comes after the motion it describes.
+  const mode = lastMatch(SITE_MODE_RE, motion ? text.slice(motion.index) : text);
+  return {
+    side: side ? normalizeSide(side[1]) : null,
+    joint: joint ? joint[1].toLowerCase() : null,
+    motion: motion ? SITE_MOTIONS[motion.slice(1).findIndex(Boolean)][0] : null,
+    mode: mode ? mode[1].toUpperCase() : null
+  };
+}
+
+function siteAt(original, valueStart, matchEnd) {
+  let sentenceStart = 0;
+  for (const b of original.slice(0, valueStart).matchAll(SITE_BOUNDARY_RE)) sentenceStart = b.index + 1;
+  const site = siteIn(original.slice(sentenceStart, valueStart));
+  // "90 degrees of R hip flexion": the site follows the value.
+  const after = original.slice(matchEnd).match(/^\s*(?:of|in|for|at)\s+([^,.;\n]{0,40})/i);
+  if (after) {
+    const following = siteIn(after[1]);
+    for (const key of Object.keys(site)) site[key] = site[key] || following[key];
+  }
+  return site;
+}
+
+function sameSite(a, b) {
+  if (!a || !b) return true;
+  return Object.keys(a).every(key => {
+    if (!a[key] || !b[key] || a[key] === b[key]) return true;
+    // Plain "rotation" is compatible with internal or external rotation.
+    return key === 'motion' && [a[key], b[key]].includes('rotation') && /rotation/.test(a[key] + b[key]);
+  });
+}
+
 // Reads every value in `text` with what it measures. Patterns run from most to
 // least specific, and each match is blanked out so later patterns skip it.
 // A bare number word ("stood on one leg") is only a value in the raw notes;
@@ -371,6 +465,8 @@ function extractFacts(text, { bareWords = true } = {}) {
   };
   const blank = re => { buf = buf.replace(re, m => ' '.repeat(m.length)); };
   const one = (type, value) => ({ readings: [{ type, value }] });
+  const at = (match, offset) => siteAt(original, offset + Math.max(0, match.search(/-?\d/)), offset + match.length);
+  const rom = (value, site) => ({ readings: [{ type: 'rom', value: Math.abs(toNumber(value)), site }] });
 
   blank(ASSIST_DEFINITION_RE);
   buf = buf.replace(GG_CODE_RE, (m, code) => { gg.push({ text: m.trim(), code: parseInt(code, 10) }); return ' '.repeat(m.length); });
@@ -387,14 +483,14 @@ function extractFacts(text, { bareWords = true } = {}) {
   });
 
   // MMT grades: 3/5, 4-/5, 3+ / 5, "four out of five"
-  scan(/(?<![\d/.])([0-5])\s*([+-])?\s*\/\s*5(?![\d/])/g, ([grade, mod]) => {
-    const readings = [{ type: 'mmt', value: `${grade}${mod || ''}/5` }];
-    if (!mod && isCalendarDate(parseInt(grade, 10), 5)) readings.push({ type: 'date', value: { month: parseInt(grade, 10), day: 5 } });
-    return { readings };
+  scan(/(?<![\d/.])([0-5])\s*([+-])?\s*\/\s*5(?![\d/])/g, ([grade, mod], match, offset) => {
+    // Always a grade, never a date: reading "2/5" as Feb 5 would let a grade
+    // moved to another muscle through as a "date".
+    return { readings: [{ type: 'mmt', value: `${grade}${mod || ''}/5`, site: at(match, offset) }] };
   });
-  scan(new RegExp(String.raw`(${N})\s*out\s*of\s*(?:5|five)\b`, 'gi'), ([g]) => {
+  scan(new RegExp(String.raw`(${N})\s*out\s*of\s*(?:5|five)\b`, 'gi'), ([g], match, offset) => {
     const grade = toNumber(g);
-    return grade <= 5 ? one('mmt', `${grade}/5`) : null;
+    return grade <= 5 ? { readings: [{ type: 'mmt', value: `${grade}/5`, site: at(match, offset) }] } : null;
   });
 
   // Pain and other 0-10 scores: 4/10, "four out of ten"
@@ -421,10 +517,10 @@ function extractFacts(text, { bareWords = true } = {}) {
 
   // ROM in degrees: 90 deg, 0-85°, -10 degrees
   scan(new RegExp(String.raw`(-?${N})(?:${TO}(-?${N}))?\s*(?:°|degrees?\b|degs?\b)`, 'gi'),
-    ([a, b]) => [a, b].filter(v => v !== undefined).map(v => one('rom', Math.abs(toNumber(v)))));
+    ([a, b], match, offset) => [a, b].filter(v => v !== undefined).map(v => rom(v, at(match, offset))));
   // ROM tagged by AROM/PROM/ROM: "PROM 0-140", "AROM: 85"
   scan(new RegExp(String.raw`\b(?:AA|A|P)?ROM\b[:\s]*(?:of\s*|is\s*|=\s*)?(-?${N})(?:${TO}(-?${N}))?(?!\s*[+-]?\s*\/)`, 'gi'),
-    ([a, b]) => [a, b].filter(v => v !== undefined).map(v => one('rom', Math.abs(toNumber(v)))));
+    ([a, b], match, offset) => [a, b].filter(v => v !== undefined).map(v => rom(v, at(match, offset))));
 
   // Sets x reps: 3x10, 3 sets of 10 reps, 3 x 30 sec, 2 x 150 ft
   scan(new RegExp(String.raw`(${N})\s*(sets?\s*(?:of|x|×)?|x|×)\s*(${N})\s*(?:(reps?|repetitions?)\b|${TIME_UNIT}|${DIST_UNIT})?`, 'gi'),
@@ -460,9 +556,9 @@ function extractFacts(text, { bareWords = true } = {}) {
 
   // Motion followed by a bare number: "hip flex 90" may be degrees or reps.
   scan(new RegExp(String.raw`\b${MOTION_SHORT}\b[:\s]*(-?${N})(?:${TO}(-?${N}))?(?!\s*(?:[+-]?\s*\/|[x×]\b|\d))`, 'gi'),
-    ([a, b]) => [a, b].filter(v => v !== undefined).map(v => {
+    ([a, b], match, offset) => [a, b].filter(v => v !== undefined).map(v => {
       const value = toNumber(v);
-      return { readings: [{ type: 'rom', value: Math.abs(value) }, { type: 'reps', value }, { type: 'other', value }] };
+      return { readings: [{ type: 'rom', value: Math.abs(value), site: at(match, offset) },{ type: 'reps', value }, { type: 'other', value }] };
     }));
 
   // Severity grades and stages: "Grade I sprain", "Stage 2 pressure injury"
@@ -521,7 +617,9 @@ function sameValue(type, a, b) {
 function isGrounded(noteFact, rawFacts) {
   return noteFact.readings.some(reading => {
     const accepted = COMPATIBLE[reading.type] || [reading.type];
-    return rawFacts.some(raw => raw.readings.some(r => accepted.includes(r.type) && sameValue(reading.type, reading.value, r.value)));
+    return rawFacts.some(raw => raw.readings.some(r => accepted.includes(r.type)
+      && sameValue(reading.type, reading.value, r.value)
+      && sameSite(reading.site, r.site)));
   });
 }
 
@@ -545,14 +643,6 @@ function findUngroundedValues(noteText, sourceNotes) {
     if (!GG_LEVELS[code].some(level => rawLevels.has(level))) ungrounded.push(text);
   }
   return [...new Set(ungrounded)];
-}
-
-// Values of one reading type in the raw notes, for grounding structured fields.
-function groundedValues(sourceNotes, type) {
-  return extractFacts(sourceNotes).facts
-    .flatMap(f => f.readings)
-    .filter(r => r.type === type)
-    .map(r => r.value);
 }
 
 function parseSOAP(text) {

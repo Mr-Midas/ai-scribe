@@ -6,12 +6,21 @@ import {
   formatForEHR
 } from './src/clinical.js';
 
-const MASTER_KEY = 'nscrb_master_2026';
+// Constant-time comparison, so response timing doesn't reveal how much of a
+// guessed key was right.
+function safeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
 
 async function authenticateRequest(request, env) {
   const apiKey = request.headers.get('X-API-Key');
   if (!apiKey) return { valid: false, error: 'Missing X-API-Key header' };
-  if (apiKey === MASTER_KEY) return { valid: true, key: apiKey, tier: 'unlimited' };
+  // The master key is a Wrangler secret (`wrangler secret put MASTER_KEY`), never
+  // source code. With no secret set, there is no master key.
+  if (env.MASTER_KEY && safeEqual(apiKey, env.MASTER_KEY)) return { valid: true, key: 'master', tier: 'unlimited' };
   try {
     const keyData = await env.API_KEYS.get(apiKey);
     if (!keyData) return { valid: false, error: 'Invalid API key' };
@@ -45,7 +54,10 @@ async function checkRateLimit(apiKey, tier, env) {
 
 async function generateWithRetry(systemPrompt, userPrompt, noteType, targetEHR, env, sourceNotes) {
   const groqKey = env.GROQ_API_KEY;
-  const openrouterKey = env.OPENROUTER_API_KEY;
+  // Patient notes may only go to providers with a signed HIPAA Business Associate
+  // Agreement. OpenRouter routes to many upstream providers, so it is off unless
+  // OPENROUTER_FALLBACK is set to "enabled".
+  const openrouterKey = env.OPENROUTER_FALLBACK === 'enabled' ? env.OPENROUTER_API_KEY : null;
 
   let currentPrompt = userPrompt;
   let lastNote = null;

@@ -6,14 +6,20 @@
 // Deployed API:
 //   EVAL_BASE_URL=https://<your-worker>.workers.dev EVAL_API_KEY=nscrb_... npm run eval
 //
+// EVAL_API_KEY_FILE=<path> reads the key from a file instead, so it never has to
+// be typed or pasted.
 // EVAL_RUNS=3 repeats each note to measure consistency (default 1).
 // Exits 1 if any run fails, so it can gate a deploy.
+import { readFileSync } from 'node:fs';
 import worker from '../worker.js';
 import { parseSOAP, findUngroundedValues, findBillingCodes } from '../src/clinical.js';
 import { RAW_NOTES } from '../tests/fixtures.js';
 
 const runs = parseInt(process.env.EVAL_RUNS || '1', 10);
 const baseUrl = process.env.EVAL_BASE_URL;
+const apiKey = process.env.EVAL_API_KEY_FILE
+  ? readFileSync(process.env.EVAL_API_KEY_FILE, 'utf8').trim()
+  : process.env.EVAL_API_KEY;
 
 if (!baseUrl && !process.env.GROQ_API_KEY && !process.env.OPENROUTER_API_KEY) {
   console.log('Skipping live eval: set GROQ_API_KEY and/or OPENROUTER_API_KEY, or EVAL_BASE_URL + EVAL_API_KEY.');
@@ -28,6 +34,7 @@ const EVAL_KEY = 'nscrb_eval_local';
 const env = {
   GROQ_API_KEY: process.env.GROQ_API_KEY,
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
+  OPENROUTER_FALLBACK: process.env.OPENROUTER_FALLBACK,
   GROQ_MODEL: process.env.GROQ_MODEL,
   OPENROUTER_MODEL: process.env.OPENROUTER_MODEL,
   API_KEYS: memoryKV({ [EVAL_KEY]: JSON.stringify({ active: true, tier: 'unlimited' }) }),
@@ -39,7 +46,7 @@ async function generate(fixture) {
   const url = `${baseUrl || 'https://eval.local'}/api/v1/notes/generate`;
   const init = {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-API-Key': baseUrl ? process.env.EVAL_API_KEY : EVAL_KEY },
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': baseUrl ? apiKey : EVAL_KEY },
     body: JSON.stringify({ raw_notes: fixture.raw_notes, note_type: fixture.note_type, target_ehr: fixture.target_ehr })
   };
   const response = baseUrl ? await fetch(url, init) : await worker.fetch(new Request(url, init), env, ctx);
