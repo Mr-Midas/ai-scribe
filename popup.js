@@ -1,31 +1,6 @@
+// The API writes notes with its own reviewed prompt and checks every value
+// against the raw notes. The extension sends no prompt of its own.
 const API_BASE = "https://note-scribe-ai-api.thomelfin529.workers.dev";
-const DEFAULT_API_KEY = "nscrb_72889ea78923476fb19d0338";
-
-const SYSTEM_PROMPT = `You are a clinical documentation assistant. Convert shorthand notes into SOAP format.
-
-RULES:
-- Plain text. No markdown/placeholders.
-- Use headers ONLY if section has data. Omit missing info.
-- Language: Skilled ("Therapist facilitated", "Tactile cues for").
-- Include sets, reps, distances, assistance levels.
-- Tie interventions to functional goals.
-
-ASSIST LEVELS: Independent, Supervision (verbal/visual), Standby Assist/SBA (ready, no contact), Contact Guard Assist/CGA (light touch), Min A (75%+), Mod A (50-74%), Max A (25-49%), Total Assist (<25%).
-
-EQUIPMENT: Reacher (NEVER "grabber"), Dressing Stick, Sock Aide, Leg Lifter, Shoe Horn, Built-up Handles, Universal Cuff, Dycem, Button Hook.
-
-EVAL (type "initial-eval"): OBSERVATIONS ONLY. Baseline ROM, MMT (0-5), balance, assist levels. Document safety: hand placements, time, attempts, cues. No progress.
-TREATMENT (type "treatment"): Document progress. Compare assist levels (e.g., "Improved from Mod A to SBA"). Update goals.
-
-CONTEXT: Adjust for diagnosis (Stroke, TBI, SCI, Ortho). Never use "independent" if unsafe.
-
-EXAMPLE EVAL:
-Subjective: R shoulder pain 5/10, difficulty dressing.
-Objective:
-- Exercise: Facilitated RUE AROM 10 mins. Flexion 120, Abd 90.
-- ADL: Instructed UB dressing with reacher. Mod A. Safety: Hands at hips. 2 attempts. Time: 8 min.
-Assessment: Impaired RUE AROM, decreased UB dressing independence.
-Plan: Continue OT. Goal: UB dressing with SBA in 4 weeks.`;
 
 const rawNotes = document.getElementById("rawNotes");
 const outputNotes = document.getElementById("outputNotes");
@@ -41,31 +16,30 @@ const progressBarFill = document.getElementById("progressBarFill");
 const progressStatus = document.getElementById("progressStatus");
 const noteTypeSelector = document.getElementById("noteTypeSelector");
 const ehrSelector = document.getElementById("ehrSelector");
+const apiKeyInput = document.getElementById("apiKeyInput");
 
 let currentNoteType = "initial-eval";
 let currentEHR = "";
 
+// Only preferences and the access key are saved. Note text may contain patient
+// information, so it is never written to disk; earlier versions did, and
+// loadState() removes anything they left behind.
 async function saveState() {
   await chrome.storage.local.set({
-    savedRawNotes: rawNotes.value,
-    savedOutputNotes: outputNotes.value,
     savedNoteType: currentNoteType,
     savedEHR: currentEHR
   });
 }
 
 async function loadState() {
-  const data = await chrome.storage.local.get(["savedRawNotes", "savedOutputNotes", "savedNoteType", "savedEHR"]);
-  if (data.savedRawNotes) rawNotes.value = data.savedRawNotes;
-  if (data.savedOutputNotes) {
-    outputNotes.value = data.savedOutputNotes;
-    if (data.savedOutputNotes.trim() !== "") outputSection.classList.add("visible");
-  }
+  await chrome.storage.local.remove(["savedRawNotes", "savedOutputNotes"]);
+  const data = await chrome.storage.local.get(["savedNoteType", "savedEHR", "apiKey"]);
   if (data.savedNoteType) setNoteType(data.savedNoteType);
   if (data.savedEHR) setEHR(data.savedEHR);
+  if (data.apiKey) apiKeyInput.value = data.apiKey;
 }
 
-rawNotes.addEventListener("input", saveState);
+apiKeyInput.addEventListener("change", () => chrome.storage.local.set({ apiKey: apiKeyInput.value.trim() }));
 
 function showProgress(percent, statusText) {
   progressContainer.classList.add("visible");
@@ -136,6 +110,12 @@ async function generateNote() {
     showStatus("Please enter raw notes first.", "error");
     return;
   }
+  const apiKey = apiKeyInput.value.trim();
+  if (!apiKey) {
+    showStatus("Enter your access key first. Your administrator can give you one.", "error");
+    apiKeyInput.focus();
+    return;
+  }
 
   hideStatus();
   outputNotes.value = "";
@@ -147,20 +127,16 @@ async function generateNote() {
 
   showProgress(10, "Connecting...");
 
-  const noteTypeLabel = currentNoteType === "initial-eval" ? "INITIAL EVALUATION" : "TREATMENT / RE-EVALUATION";
-
   try {
     showProgress(20, "Generating note...");
 
-    const apiKey = await chrome.storage.local.get("apiKey").then(r => r.apiKey || DEFAULT_API_KEY);
     const response = await fetch(`${API_BASE}/api/v1/notes/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
       body: JSON.stringify({
         raw_notes: notes,
         note_type: currentNoteType,
-        target_ehr: currentEHR || undefined,
-        system_prompt: SYSTEM_PROMPT
+        target_ehr: currentEHR || undefined
       })
     });
 
@@ -181,15 +157,13 @@ async function generateNote() {
     showProgress(100, "Done!");
     setTimeout(() => hideProgress(), 800);
 
-    if (data.validation?.issues?.length > 0) {
-      showStatus(`Note generated with ${data.validation.issues.length} issues after ${data.metadata?.attempts || 1} attempts.`, "error");
+    if (data.review_required) {
+      showStatus(`Needs your review: the note contains details not in your notes. ${data.validation.issues.join(" ")}`, "error");
     } else if (data.validation?.warnings?.length > 0) {
       showStatus(`Note generated with ${data.validation.warnings.length} warnings.`, "error");
     } else {
       showStatus("Note generated successfully.", "success");
     }
-
-    saveState();
   } catch (err) {
     hideProgress();
     showStatus(`Error: ${err.message}`, "error");

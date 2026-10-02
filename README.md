@@ -1,254 +1,111 @@
 # Note Scribe AI
 
-A local, private AI-powered Chrome Extension for clinical documentation. Converts raw shorthand notes into professional SOAP notes using Ollama — **100% local, nothing ever leaves the machine.**
+Note Scribe AI turns therapists' shorthand into SOAP notes. Every measurement, grade, count, date and assist level in a generated note is checked against what the clinician actually wrote. If the AI adds something that isn't in the clinician's notes, the note is rewritten, and if that still fails, it is marked for the clinician to review.
 
-## What It Does
+> **Status: pilot. Not HIPAA compliant yet.** Do not enter real patient-identifying information (names, dates of birth, record numbers, addresses) until the steps in [Path to HIPAA compliance](#path-to-hipaa-compliance) are complete.
 
-1. You type or paste messy shorthand notes into the extension
-2. The AI transforms them into a professional, legally defensible Daily Treatment Note
-3. You copy the output and paste it into your EMR
+## Ways to use it
 
-**No cloud APIs. No data sent anywhere. Everything runs on your machine.**
+| Who | How |
+|-----|-----|
+| Therapists | **Web app** at https://note-scribe-ai-api.thomelfin529.workers.dev. Sign in with an access key, paste your notes, copy the result. Nothing to install. |
+| EHR companies | **REST API** at the same address. See [API.md](API.md). |
+| Chrome extension | Same service, in a browser popup. See [EXTENSION.md](EXTENSION.md). |
 
-## How It Works
+## Using the web app (clinicians)
 
-The extension sends your raw notes to a local AI model (phi3 via Ollama) along with a detailed system prompt that teaches the model how to write clinical documentation. The prompt handles the heavy lifting:
+1. Open https://note-scribe-ai-api.thomelfin529.workers.dev
+2. Enter the access key your administrator gave you. Tick **Remember me** only on your own computer.
+3. Choose **Treatment** or **Initial evaluation**, and the EHR you use if it is listed.
+4. Type your notes the way you normally would, then click **Write SOAP note**.
+5. Read the note:
+   - **Green, "Ready to review"**: every measurement in the note was found in your notes. Still read it before using it.
+   - **Amber, "Needs your review"**: the note contains details you did not write. They are listed so you can correct or delete them.
+   - Below the note, "Not in your notes" lists things the note does not cover (for example skin integrity). Add them yourself only if you assessed them.
+6. Edit if needed, click **Copy note**, and paste it into your EHR.
 
-- **Clinical compliance rules** — forces active, skilled language ("Therapist facilitated..." instead of "patient walked") and requires objective measurements (sets, reps, distances, assistance levels)
-- **Proper OT terminology** — defines all 8 assistance levels (Independent through Total Assist) and adaptive equipment names (reacher, dressing stick, sock aide, etc.) so the AI uses exact clinical terms
-- **Note type awareness** — you select Initial Evaluation or Treatment/Re-eval before generating, and the prompt changes what the AI documents (observations only for initial evals, progress comparisons for re-evals)
-- **Safety observations** — the prompt instructs the AI to document hand placements, time to complete tasks, number of attempts, and verbal/visual cues provided
-- **Context-aware goals** — the AI considers the patient's diagnosis when setting goals (e.g., a frontal lobe stroke patient won't have "independent" as a realistic goal)
-- **Format enforcement** — outputs plain text SOAP notes with no markdown, no placeholders, and only the sections that have data
+The web app does not save your notes. Closing the tab clears them.
 
-The result is a note that looks like a skilled therapist wrote it, not an AI.
+## Giving someone access (administrators)
 
-## Example
-
-**Raw input:**
-> Pt had R shoulder pain 5/10. couldn't put on shirt. did active ROM for 10 mins. practiced upper body dressing with reacher, mod assist because he couldn't reach behind back.
-
-**Generated output (Initial Evaluation):**
-> Subjective: Patient reports right shoulder pain at 5/10, noting difficulty with upper body dressing.
-> Objective:
-> - Therapeutic Exercise: Facilitated active range of motion (AROM) of the right upper extremity for 10 minutes to improve joint mobility and decrease pain prior to ADL participation. Patient demonstrated forward flexion to 120 degrees, abduction to 90 degrees.
-> - ADL Training: Instructed patient in upper body dressing utilizing adaptive equipment (reacher). Patient required Mod A for task completion. Safety: Therapist placed hands at bilateral hips for stability during standing dressing tasks. Patient required 2 attempts to don shirt. Time to complete upper body dressing: 8 minutes. Verbal cues provided for sequencing and joint protection techniques.
-> Assessment: Patient demonstrates impaired right upper extremity AROM and decreased independence with upper body dressing. Skilled intervention required to maximize safety and improve functional independence.
-> Plan: Continue OT per plan of care. Will progress to Min A for upper body dressing. Goal: Patient will perform upper body dressing with Standby Assist within 4 weeks.
-
----
-
-## Setup Instructions
-
-### Quick Setup (Recommended)
-
-**macOS / Linux:**
-```bash
-git clone https://github.com/Mr-Midas/therapy-note-ai-scribe.git
-cd therapy-note-ai-scribe
-bash setup.sh
-```
-
-**Windows:**
-```powershell
-git clone https://github.com/Mr-Midas/therapy-note-ai-scribe.git
-cd therapy-note-ai-scribe
-.\setup.bat
-```
-
-The setup script will automatically check for Ollama, download the AI model, and generate extension icons — skipping anything that's already installed.
-
-### Manual Setup
-
-### 1. Install Ollama
-
-#### macOS
-
-Open Terminal and run:
+Each person gets their own access key, so one person's access can be turned off without affecting anyone else. Until there is an admin page (see the roadmap below), keys are created from this project folder in a terminal:
 
 ```bash
-brew install ollama
+# Create a key (prints it once; send it to the person privately)
+node -e "console.log('nscrb_' + require('crypto').randomBytes(16).toString('hex'))"
+npx wrangler kv key put <the-key> '{"active":true,"tier":"standard","label":"Jane Smith, OT"}' --binding API_KEYS --remote
+
+# Turn a key off (reversible: set active back to true)
+npx wrangler kv key put <the-key> '{"active":false,"tier":"standard","label":"Jane Smith, OT"}' --binding API_KEYS --remote
 ```
 
-If Homebrew isn't installed, download Ollama from https://ollama.com/download instead.
+Never put a key in source code, documentation or a chat message.
 
-#### Windows
+## What it checks, and what it doesn't
 
-1. Download the installer from https://ollama.com/download
-2. Run the `.exe` installer and follow the prompts
-3. Ollama will start automatically and run in the system tray
+The safeguards below catch values the AI adds: numbers, grades, scores, dates, assist levels, billing codes, and ROM or strength values attached to the wrong body part. They do **not** catch invented statements without a value, such as a diagnosis, a precaution, or "patient tolerated treatment well." That is why every note must still be read by the clinician before it is used.
 
-### 2. Download the AI Model
+## Data handling today
 
-#### macOS
+This describes what actually happens now, not a compliance claim.
 
-```bash
-ollama pull llama3
-```
+- **Where notes go:** the clinician's browser (or an EHR system) sends the notes to the Note Scribe API on Cloudflare Workers, which sends them to the AI model on Groq (`openai/gpt-oss-120b`) and returns the note. All connections use HTTPS.
+- **Storage:** the API does not store note text. The web app does not save note text in the browser. The optional audit log (`AUDIT_LOG_URL`) records metadata only: time, model, note type, number of issues.
+- **Not yet confirmed:** Groq's and Cloudflare's retention and logging of request data have not been confirmed in writing, and neither has signed a BAA. Cloudflare Workers observability is enabled in `wrangler.toml`; it records request metadata and error messages, not request bodies.
+- **OpenRouter** is not used unless `OPENROUTER_FALLBACK=enabled`, because it forwards requests to many upstream providers that a single BAA can't cover.
 
-#### Windows
+## Path to HIPAA compliance
 
-Open **Command Prompt** or **PowerShell** and run:
+There is no official HIPAA certification. Compliance means meeting the HIPAA Privacy, Security and Breach Notification Rules, and having a signed Business Associate Agreement (BAA) with every company that handles patient data on our behalf. Enterprise customers will ask for evidence: the BAAs, a security risk assessment, written policies, and often a SOC 2 report.
 
-```powershell
-ollama pull phi3
-```
+**Current status**
 
-This downloads the AI model (~2-5 GB). Only needs to be done once.
+| Requirement | Status |
+|-------------|--------|
+| Encryption in transit (HTTPS) | Done |
+| API does not store note text | Done |
+| Notes not sent to OpenRouter | Done |
+| Each user has their own access key that can be turned off | Done |
+| BAA with the AI provider | Not started |
+| BAA with the hosting provider | Not started |
+| Individual user accounts with multi-factor sign-in and automatic sign-out | Not started (access keys only) |
+| Audit trail of who generated which note, and when | Partial (metadata only, when `AUDIT_LOG_URL` is set; no user identity yet) |
+| Security risk assessment, written policies, named security officer, staff training | Not started |
+| BAAs signed with our own customers | Not started |
+| SOC 2 Type II (or HITRUST) report | Not started |
 
-### 3. Download This Repository
+**Phase 1: before any real patient data**
 
-Click the green **Code** button above → **Download ZIP** → unzip it to your Desktop.
+1. **AI provider under a BAA.** Move model calls to a HIPAA-eligible service with a signed BAA (AWS Bedrock, Azure AI Foundry, or Google Vertex AI), using only services and models that its BAA covers. Re-run `npm run eval` on the new model before switching. Groq can stay only if Groq signs a BAA.
+2. **Hosting under a BAA.** Cloudflare signs BAAs only on its Enterprise plan. The alternative is to host the API with the same cloud provider as the AI model, so one BAA covers both.
+3. **Real user accounts.** Replace shared access keys with individual sign-in, multi-factor authentication, automatic sign-out after inactivity, and immediate deactivation.
+4. **Audit trail.** Record which user generated a note and when (never the note content), and keep those records under a written retention policy.
+5. **Policies and risk assessment.** Complete a HIPAA security risk assessment, write the required policies (access control, incident response, breach notification), name a security and privacy officer, and train anyone with access.
+6. **Customer BAAs.** Note Scribe AI becomes each clinic's or EHR company's business associate, so we sign a BAA with each of them.
 
-Or if you're comfortable with the terminal:
+**Phase 2: enterprise readiness**
 
-**macOS:**
-```bash
-git clone https://github.com/Mr-Midas/therapy-note-ai-scribe.git ~/therapy-note-ai-scribe
-cd ~/therapy-note-ai-scribe
-```
-
-**Windows:**
-```powershell
-git clone https://github.com/Mr-Midas/therapy-note-ai-scribe.git
-cd therapy-note-ai-scribe
-```
-
-> **Windows note:** Do NOT clone to `~/therapy-note-ai-scribe` — the `~` shortcut behaves differently in PowerShell and will create a literal folder named `~`. Clone into your current directory instead.
-
-### 4. Generate the Extension Icons
-
-**macOS:**
-```bash
-pip3 install Pillow
-python3 generate_icons.py
-```
-
-**Windows:**
-```powershell
-pip install Pillow
-python generate_icons.py
-```
-
-> If you get a "python3 not found" error on Windows, try `python` instead of `python3`.
-
-### 5. Load the Extension in Chrome
-
-These steps are the same for macOS and Windows:
-
-1. Open Google Chrome
-2. Type `chrome://extensions` in the address bar, press Enter
-3. Toggle **Developer mode** ON (top-right corner)
-4. Click **Load unpacked** (top-left)
-5. Select the project folder:
-   - **macOS:** `~/therapy-note-ai-scribe`
-   - **Windows:** `C:\Users\<your-username>\Desktop\therapy-note-ai-scribe` (or wherever you cloned it)
-6. Pin the extension: click the puzzle-piece icon → pin "Note Scribe AI"
-
-### 6. Create a Desktop Shortcut (macOS Only)
-
-```bash
-cd ~/therapy-note-ai-scribe
-bash create_app.sh
-```
-
-This creates **Note Scribe AI.app** on your Desktop. Drag it to your Dock for easy access.
-
-On Windows, you can pin the Chrome extension to your taskbar, or create a shortcut by right-clicking the Chrome icon on your taskbar after loading the extension.
-
----
-
-## How to Use
-
-1. Click **Note Scribe AI** in your Dock/taskbar
-2. Chrome opens with the extension
-3. Select your note type: **Initial Evaluation** or **Treatment / Re-eval**
-4. Type or paste your raw notes
-5. Click **Generate Compliant Note**
-6. Watch the progress bar as the AI generates your note
-7. Review the output, click **Copy**, paste into your EMR
-
-**Keyboard shortcut:** `Ctrl+Enter` (Windows) or `Cmd+Enter` (Mac) in the notes field triggers generation.
-
-> **Note:** The first time you use it each day, it may take 5-10 seconds for Ollama to start. After that, generation takes 2-5 seconds.
-
----
-
-## OT Terminology Reference
-
-The AI uses clinically accurate OT terminology:
-
-### Assistance Levels
-- **Independent** — Patient performs safely without assistance
-- **Supervision** — Verbal/visual cues only, no physical contact
-- **Standby Assist (SBA)** — Therapist ready but provides no physical contact
-- **Contact Guard Assist (CGA)** — Light touch for safety; patient does majority of task
-- **Minimum Assist (Min A)** — Patient performs 75%+ of task
-- **Moderate Assist (Mod A)** — Patient performs 50-74% of task
-- **Maximum Assist (Max A)** — Patient performs 25-49% of task
-- **Total Assist** — Patient performs <25% of task
-
-### Adaptive Equipment
-- **Reacher** (not "reacher wand" or "grabber")
-- Dressing Stick, Sock Aide, Leg Lifter, Long-handled Shoe Horn
-- Built-up Handles, Universal Cuff, Dycem Mat, Button Hook
-
----
-
-## Troubleshooting
-
-| Problem | Fix |
-|---|---|
-| "Cannot connect to Ollama" error | Make sure Ollama is running. On macOS, try `ollama serve` in Terminal. On Windows, check the system tray for the Ollama icon. |
-| "403 Forbidden" error | Ollama needs CORS access. Run `setx OLLAMA_ORIGINS "*"` then restart Ollama. On macOS: `launchctl setenv OLLAMA_ORIGINS "*"` then restart. |
-| "Model not found" error | Run `ollama pull phi3` in your terminal |
-| Extension doesn't appear in Chrome | Go to `chrome://extensions` and click the refresh button |
-| App icon is missing | Run `python generate_icons.py` from the terminal in the project folder |
-| Windows: `cd ~/therapy-note-ai-scribe` fails | Don't use `~` on Windows. Use `cd therapy-note-ai-scribe` after cloning into your current directory |
-| Windows: `python3` not found | Try `python` instead of `python3` |
-
----
-
-## Privacy & Security
-
-- **Zero cloud calls** — Ollama runs entirely on your local machine
-- **No data collection** — the extension has no analytics, telemetry, or tracking
-- **No external APIs** — communication is only between the extension and `localhost:11434`
-- **100% local** — patient data never leaves the device
-
----
-
-## Technical Design Considerations
-
-Building a local-first extension that talks to a local LLM is a solid approach for privacy, but it introduces some unique technical hurdles. Here are the main things you need to plan for in your system design:
-- **Ollama connectivity & CORS**: Chrome extensions have strict security policies, so you'll need to configure Ollama to accept requests from your extension's origin (usually by setting OLLAMA_ORIGINS to your extension ID or chrome-extension://*).
-- **Service Worker lifecycle**: Extension background scripts are ephemeral and will shut down during long LLM generations, meaning you'll need to handle model streaming via an offscreen document or keep-alive pings to prevent the connection from dropping mid-note.
-- **Error state UX**: You have to design for the inevitable moments when Ollama isn't running, the phi3 model isn't pulled yet, or the user's machine is heavily thermal throttling.
-- **Local storage limits**: Since you aren't using a cloud database, you'll need to rely on chrome.storage.local to cache raw notes, prompt templates, and draft history without hitting the default storage quotas.
-- **Model context window**: Shorthand notes are short, but highly detailed system prompts with examples (few-shot prompting) can eat up context quickly, so you'll need to optimize your clinical rules to keep generation speeds usable on average hardware
-
----
+7. A SOC 2 Type II audit (or HITRUST), which EHR companies commonly require of vendors.
+8. Independent penetration testing and a vulnerability management process.
+9. A second AI provider, also under a BAA, so an outage at one provider doesn't stop note writing.
+10. An admin page for creating and turning off access keys and, later, user accounts.
 
 ## Enterprise API
 
-Note Scribe AI includes a REST API for EHR integration (TherapyBOSS, Kinnser). See [API.md](API.md) for full documentation.
+Base URL: `https://note-scribe-ai-api.thomelfin529.workers.dev`. Full documentation is in [API.md](API.md).
 
-**Base URL:** `https://note-scribe-ai-api.thomelfin529.workers.dev`
-
-**Key Features:**
-- Multi-model fallback (Groq → OpenRouter) with automatic retry (up to 3 attempts) and a 20-second timeout per model call
-- Deep structured data extraction: Section GG, CPT codes, ROM (side, joint, AROM/PROM, degrees), MMT (0-5 with +/-), assistance levels
+- Automatic retry with validation feedback (up to 3 attempts) and a 20-second timeout per model call; waits on provider rate limits instead of failing
+- Structured data extraction: Section GG, CPT codes, ROM (side, joint, AROM/PROM, degrees), MMT (0-5 with +/-), assistance levels
 - EHR-specific formatters for TherapyBOSS and Kinnser
-- Webhook auto-delivery after generation
-- No note content is stored by the API itself
-- Audit logging (metadata only, no PHI)
+- Webhook delivery after generation, signed with HMAC-SHA256
 
-**Key Endpoints:**
-- `POST /api/v1/notes/generate` - Generate structured SOAP note with validation + retry
-- `POST /api/v1/notes/extract` - Extract discrete EHR fields
-- `POST /api/v1/notes/format` - Format for specific EHR (TherapyBOSS/Kinnser)
-- `POST /api/v1/notes/validate` - Validate clinical content
-- `POST /api/v1/webhooks/deliver` - Deliver to EHR webhooks
+**Endpoints:**
+- `POST /api/v1/notes/generate`: generate a validated SOAP note
+- `POST /api/v1/notes/extract`: extract discrete EHR fields
+- `POST /api/v1/notes/format`: format for TherapyBOSS or Kinnser
+- `POST /api/v1/notes/validate`: validate a note against raw notes
+- `POST /api/v1/webhooks/deliver`: deliver to an EHR webhook
+- `GET /api/v1/auth/check`: check that an access key is valid
 
 ### Reliability safeguards
 
@@ -299,17 +156,6 @@ npx wrangler deploy
   - In GitHub Actions it runs when `GROQ_API_KEY` / `OPENROUTER_API_KEY` are added under the repo's Settings → Secrets and variables → Actions.
 
 Add a fixture to `tests/fixtures.js` whenever a customer reports a bad note, so the same failure can't return unnoticed.
-
-### Compliance note
-
-Raw notes sent to this API are forwarded to the configured model provider. Before processing real patient data (PHI), each provider in the chain must be covered by a signed HIPAA Business Associate Agreement (BAA), and its data-retention terms must be confirmed. EHR customers will ask for this. OpenRouter forwards requests to many different underlying providers, which makes BAA coverage hard to guarantee, so the OpenRouter fallback is off unless `OPENROUTER_FALLBACK=enabled`. HIPAA-eligible options include the major cloud AI platforms (AWS Bedrock, Azure, Google Vertex AI) and model vendors' enterprise APIs that offer a BAA.
-
-## Requirements
-
-- macOS 11.0+ or Windows 10+
-- Google Chrome
-- Ollama (free, open-source)
-- ~5 GB of free disk space (for Ollama + AI model)
 
 ## License
 

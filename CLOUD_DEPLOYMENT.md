@@ -1,5 +1,7 @@
 # Cloudflare Worker Deployment
 
+> **Outdated.** This page describes an earlier version that ran an AI model locally with Ollama. The current product is described in [README.md](README.md). Note Scribe AI is **not HIPAA compliant yet**; see [Path to HIPAA compliance](README.md#path-to-hipaa-compliance).
+
 ## Overview
 This worker provides a secure cloud backup for Note Scribe AI using Groq's Llama 3 70B model. It's hosted on Cloudflare Workers and acts as a privacy-focused backup when the local Ollama instance fails.
 
@@ -136,7 +138,7 @@ The UI will automatically detect when cloud backup is needed and prompt the user
 2. **Failure Detection**: If Ollama fails (500 error, timeout, connection refused)
 3. **Smart Retry**: Waits 1.5s and retries locally
 4. **Cloud Fallback**: If retries fail, shows user prompt
-5. **User Choice**: User chooses "Use Secure Cloud" 
+5. **User Choice**: User chooses "Use Cloud" 
 6. **Cloud Processing**: Sends to Cloudflare worker → Groq Llama 3 70B
 7. **Response**: Streams back to user interface
 

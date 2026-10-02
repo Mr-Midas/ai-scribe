@@ -1,5 +1,7 @@
 # Setup Instructions for Note Scribe AI
 
+> **Outdated.** This page describes an earlier version that ran an AI model locally with Ollama. The current product is described in [README.md](README.md). Note Scribe AI is **not HIPAA compliant yet**; see [Path to HIPAA compliance](README.md#path-to-hipaa-compliance).
+
 ## Prerequisites
 
 - Google Chrome browser
@@ -147,7 +149,7 @@ When enabled, the cloud backup:
 - Only activates when local Ollama fails (500 error, timeout, or connection refused)
 - Sends only the current note being generated (never stored)
 - Uses Cloudflare Workers with Groq's Llama 3 70B
-- Is encrypted and HIPAA-compliant
+- Is encrypted in transit (HTTPS). It is not HIPAA compliant yet.
 - Is completely optional and opt-in
 
 ## Technical Details

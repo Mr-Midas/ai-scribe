@@ -499,6 +499,12 @@
       </select>
     </div>
 
+    <!-- Access key: entered by each user, never built into the extension -->
+    <div class="note-type-section">
+      <label class="label" for="apiKeyInput">Access Key</label>
+      <input type="password" id="apiKeyInput" placeholder="nscrb_..." autocomplete="off" style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:10px;background:var(--bg-secondary);color:var(--text-primary);font-size:13px;">
+    </div>
+
     <!-- Progress Bar -->
     <div class="progress-container" id="progressContainer">
       <div class="progress-bar-track">
@@ -510,7 +516,7 @@
     <div class="button-row">
       <button class="btn btn-primary" id="generateBtn">
         <span class="spinner"></span>
-        <span class="btn-text">⚡ Generate Compliant Note</span>
+        <span class="btn-text">⚡ Generate SOAP Note</span>
       </button>
       <button class="btn btn-secondary" id="clearBtn" title="Clear all">Clear</button>
     </div>
@@ -530,7 +536,7 @@
 
     <div class="footer">
       <div>Note Scribe AI v1.1</div>
-      <div class="privacy-badge">🔒 100% Local &amp; Private — Powered by Ollama</div>
+      <div class="privacy-badge">Pilot: not HIPAA compliant yet. Do not enter patient identifiers.</div>
     </div>
   </div>
 

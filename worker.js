@@ -5,6 +5,16 @@ import {
   buildRetryPrompt,
   formatForEHR
 } from './src/clinical.js';
+import { APP_HTML } from './src/app.js';
+
+// The web app only talks to this API and loads nothing from other sites.
+const APP_HEADERS = {
+  'Content-Type': 'text/html; charset=utf-8',
+  'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'Cache-Control': 'no-store'
+};
 
 // Constant-time comparison, so response timing doesn't reveal how much of a
 // guessed key was right.
@@ -293,6 +303,10 @@ async function handleApiRequest(request, env, ctx) {
     return new Response(null, { headers: corsHeaders() });
   }
 
+  if (request.method === 'GET' && (path === '/' || path === '/app')) {
+    return new Response(APP_HTML, { headers: APP_HEADERS });
+  }
+
   if (request.method === 'GET' && path === '/api/v1/health') {
     return jsonResponse({ status: 'healthy', version: '3.1.0', timestamp: new Date().toISOString() });
   }
@@ -318,7 +332,9 @@ async function handleApiRequest(request, env, ctx) {
   };
 
   let response;
-  if (request.method === 'POST' && path === '/api/v1/notes/generate') {
+  if (request.method === 'GET' && path === '/api/v1/auth/check') {
+    response = jsonResponse({ valid: true, tier: auth.tier });
+  } else if (request.method === 'POST' && path === '/api/v1/notes/generate') {
     response = await handleGenerateNote(request, env, ctx);
   } else if (request.method === 'POST' && path === '/api/v1/notes/extract') {
     response = await handleExtractStructured(request);

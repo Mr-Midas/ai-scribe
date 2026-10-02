@@ -14,7 +14,7 @@ All endpoints (except `/health` and `/usage`) require an API key:
 X-API-Key: your-api-key-here
 ```
 
-**Your API key:** `nscrb_72889ea78923476fb19d0338` (premium tier — 1000 req/min)
+Each client gets its own key from the Note Scribe administrator. Keep it secret: never put it in source code, browser extensions you distribute, or documentation. Check a key with `GET /api/v1/auth/check`.
 
 **Tiers:**
 | Tier | Rate Limit | Use Case |
@@ -25,12 +25,13 @@ X-API-Key: your-api-key-here
 
 ## Features
 
-- Multi-model fallback chain (Groq → OpenRouter)
+- Model: Groq `openai/gpt-oss-120b` (OpenRouter fallback only when explicitly enabled; see Model Chain)
+- Every value in the note is checked against the raw notes; unresolved notes return `review_required: true`
 - Automatic retry with clinical validation feedback (up to 3 attempts)
 - Deep structured data extraction (Section GG, CPT codes, ROM, MMT)
 - EHR-specific formatters (TherapyBOSS, Kinnser)
 - Webhook auto-delivery after generation
-- Zero-retention policy (no data stored)
+- The API does not store note text (model provider retention: see HIPAA status)
 - Audit logging (metadata only, no PHI)
 
 ## Endpoints
@@ -72,7 +73,7 @@ X-API-Key: nscrb_your_key
 | raw_notes | string | Yes | Raw shorthand notes |
 | note_type | string | Yes | `initial-eval` or `treatment` |
 | target_ehr | string | No | `therapyboss`, `kinnser`, or omit |
-| system_prompt | string | No | Custom system prompt |
+| system_prompt | string | No | Replaces the built-in prompt. Not recommended: the built-in prompt is what the evaluation suite tests. Grounding checks still run. |
 | webhook_url | string | No | Auto-deliver formatted note to this URL |
 | webhook_secret | string | No | Secret for the `X-Signature` HMAC-SHA256 header (see Webhook Delivery) |
 
@@ -238,16 +239,19 @@ The API automatically retries generation with validation feedback:
 
 ## Model Chain
 
-1. Groq (Llama 3 70B) - primary, fastest
-2. OpenRouter (Llama 3.1 70B) - fallback
+1. Groq, `openai/gpt-oss-120b` (override with `GROQ_MODEL`). On a rate limit the API waits (up to 10 s) and retries.
+2. OpenRouter, only when `OPENROUTER_FALLBACK=enabled`. Off by default: OpenRouter forwards to many upstream providers that a single BAA cannot cover.
 
-## HIPAA Compliance
+## HIPAA status
 
-- Zero-retention: no raw notes or generated notes stored
-- Audit logging: metadata only (no PHI)
-- Encrypted in transit (TLS 1.3)
-- User IDs hashed in logs
-- No model training on API inputs
+**Not HIPAA compliant yet. Do not send real patient-identifying information during the pilot.** What is in place today:
+
+- Encrypted in transit (HTTPS)
+- The API does not store raw notes or generated notes
+- Audit logging records metadata only (no note content), when `AUDIT_LOG_URL` is set
+- No OpenRouter routing unless explicitly enabled
+
+Not yet in place: BAAs with the AI provider (Groq) and the host (Cloudflare), confirmed provider data retention, individual user accounts, and a security risk assessment. The plan and current status are in the README under [Path to HIPAA compliance](README.md#path-to-hipaa-compliance).
 
 ## Error Responses
 
