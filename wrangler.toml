@@ -3,6 +3,11 @@ main = "worker.js"
 compatibility_date = "2024-09-23"
 workers_dev = true
 
+# Public testing key behind the web app's "Try as guest" button (tier "demo",
+# 10 requests/minute). Deliberately public: it is also listed in the README.
+[vars]
+DEMO_API_KEY = "nscrb_demo_a1d59ec7e179b6b9"
+
 [[kv_namespaces]]
 binding = "API_KEYS"
 id = "0ceff63b30274781abb15d5b9ab2bd0f"

@@ -25,6 +25,17 @@ test('the web app is served at / with a restrictive content security policy', as
   assert.match(await res.text(), /<title>Note Scribe<\/title>/);
 });
 
+test('the guest button gets the demo key only when it is configured and well-formed', async () => {
+  const page = async demo => {
+    const e = env();
+    if (demo !== undefined) e.DEMO_API_KEY = demo;
+    return (await call('/', {}, e)).text();
+  };
+  assert.match(await page('nscrb_demo_abc123'), /var DEMO_KEY = 'nscrb_demo_abc123';/);
+  assert.match(await page(undefined), /var DEMO_KEY = '';/);
+  assert.match(await page("x'; alert(1); '"), /var DEMO_KEY = '';/);
+});
+
 test('auth check accepts active keys and the master secret, rejects others', async () => {
   assert.equal((await call('/api/v1/auth/check', { 'X-API-Key': 'nscrb_active' })).status, 200);
   assert.equal((await call('/api/v1/auth/check', { 'X-API-Key': 'nscrb_master_test' })).status, 200);

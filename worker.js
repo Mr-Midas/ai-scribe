@@ -306,7 +306,9 @@ async function handleApiRequest(request, env, ctx) {
   }
 
   if (request.method === 'GET' && (path === '/' || path === '/app')) {
-    return new Response(APP_HTML, { headers: APP_HEADERS });
+    // Only a well-formed key is inserted into the page; anything else hides the guest button.
+    const demoKey = /^nscrb_[A-Za-z0-9_]+$/.test(env.DEMO_API_KEY || '') ? env.DEMO_API_KEY : '';
+    return new Response(APP_HTML.replace('__DEMO_API_KEY__', demoKey), { headers: APP_HEADERS });
   }
 
   if (request.method === 'GET' && path === '/api/v1/health') {

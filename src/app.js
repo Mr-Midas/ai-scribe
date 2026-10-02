@@ -67,6 +67,7 @@ export const APP_HTML = `<!doctype html>
   .signin { max-width: 440px; margin: 40px auto; }
   .check { display: flex; gap: 8px; align-items: center; font-weight: 400; margin: 12px 0 16px; }
   .link { background: none; border: 0; color: var(--accent); font: inherit; cursor: pointer; padding: 0; }
+  .divider { border: 0; border-top: 1px solid var(--line); margin: 20px 0 14px; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -92,7 +93,17 @@ export const APP_HTML = `<!doctype html>
       <div id="signInError" class="status err" hidden></div>
       <button class="btn btn-primary" type="submit" id="signInBtn">Sign in</button>
     </form>
+    <div id="guestBox" hidden>
+      <hr class="divider">
+      <p class="hint">No access key yet? Try it with shared guest access. Use made-up notes only.</p>
+      <button class="btn btn-secondary" type="button" id="guestBtn">Try as guest</button>
+    </div>
   </section>
+
+  <div id="guestNotice" class="status warn" hidden>
+    <strong>You are using guest access.</strong>
+    It is shared by everyone trying Note Scribe, so it is limited to 10 notes per minute in total. Use made-up notes only.
+  </div>
 
   <section id="appView" class="grid" hidden>
     <div class="card">
@@ -146,6 +157,8 @@ export const APP_HTML = `<!doctype html>
 <script>
 (function () {
   var KEY_STORE = 'noteScribeKey';
+  // Filled in by worker.js from the DEMO_API_KEY setting; empty hides the guest button.
+  var DEMO_KEY = '__DEMO_API_KEY__';
   var TYPE_STORE = 'noteScribeType';
   var apiKey = null;
   var noteType = 'treatment';
@@ -168,6 +181,8 @@ export const APP_HTML = `<!doctype html>
     $('signInView').hidden = view !== 'signin';
     $('appView').hidden = view !== 'app';
     $('signOut').hidden = view !== 'app';
+    $('guestNotice').hidden = !(view === 'app' && DEMO_KEY && apiKey === DEMO_KEY);
+    $('guestBox').hidden = !(view === 'signin' && DEMO_KEY);
   }
 
   function api(path, options) {
@@ -183,7 +198,8 @@ export const APP_HTML = `<!doctype html>
     return api('/api/v1/auth/check').then(function (r) {
       if (r.status !== 200) {
         apiKey = null;
-        throw new Error(r.status === 401 ? (r.body.error === 'API key deactivated'
+        throw new Error(r.status === 429 ? 'Too many people are using guest access right now. Please wait a minute and try again.'
+          : r.status === 401 ? (r.body.error === 'API key deactivated'
           ? 'This access key has been turned off. Ask your administrator for a new one.'
           : 'That access key was not recognized. Check it and try again.')
           : 'Could not sign in right now. Please try again in a minute.');
@@ -203,6 +219,17 @@ export const APP_HTML = `<!doctype html>
       err.textContent = ex.message;
       err.hidden = false;
     }).then(function () { $('signInBtn').disabled = false; });
+  });
+
+  $('guestBtn').addEventListener('click', function () {
+    var err = $('signInError');
+    err.hidden = true;
+    $('guestBtn').disabled = true;
+    // Guest access is never remembered between visits.
+    signIn(DEMO_KEY, false).catch(function (ex) {
+      err.textContent = 'Guest access is not available right now. ' + ex.message;
+      err.hidden = false;
+    }).then(function () { $('guestBtn').disabled = false; });
   });
 
   $('signOut').addEventListener('click', function () {

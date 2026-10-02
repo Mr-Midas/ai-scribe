@@ -14,7 +14,9 @@ Note Scribe AI turns therapists' shorthand into SOAP notes. Every measurement, g
 
 ## Try it
 
-Anyone can try Note Scribe with the public testing key:
+The quickest way: open the [web app](https://note-scribe-ai-api.thomelfin529.workers.dev) and click **Try as guest**. No key needed.
+
+For the extension or the API, use the public testing key:
 
 ```
 nscrb_demo_a1d59ec7e179b6b9
@@ -54,7 +56,7 @@ npx wrangler kv key put <the-key> '{"active":false,"tier":"standard","label":"Ja
 
 Never put a key in source code, documentation or a chat message. The only exception is the public testing key above, which is deliberately public, rate-limited and can be turned off.
 
-To turn off the public testing key, run the "turn a key off" command above with `nscrb_demo_a1d59ec7e179b6b9` and `"tier":"demo"`. To replace it, create a new key with `"tier":"demo"` and update the [Try it](#try-it) section.
+The web app's **Try as guest** button uses the key set as `DEMO_API_KEY` in `wrangler.toml`; remove that line and redeploy to hide the button. To turn off the public testing key, run the "turn a key off" command above with `nscrb_demo_a1d59ec7e179b6b9` and `"tier":"demo"`. To replace it, create a new key with `"tier":"demo"` and update `DEMO_API_KEY` in `wrangler.toml` and the [Try it](#try-it) section.
 
 ## What it checks, and what it doesn't
 
