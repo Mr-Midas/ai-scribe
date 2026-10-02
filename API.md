@@ -27,7 +27,7 @@ X-API-Key: your-api-key-here
 
 - Multi-model fallback chain (Groq → OpenRouter)
 - Automatic retry with clinical validation feedback (up to 3 attempts)
-- Deep structured data extraction (Section GG, G-codes, CPT codes, ROM, MMT)
+- Deep structured data extraction (Section GG, CPT codes, ROM, MMT)
 - EHR-specific formatters (TherapyBOSS, Kinnser)
 - Webhook auto-delivery after generation
 - Zero-retention policy (no data stored)
@@ -90,10 +90,10 @@ Content-Type: application/json
       "activities": [],
       "current_level": "Mod A",
       "target_level": "SBA",
-      "rom_measurements": [{"movement": "flexion", "degrees": 120}],
-      "strength_grades": []
+      "rom_measurements": [{"side": "R", "joint": "shoulder", "movement": "flexion", "type": "AROM", "start_degrees": 0, "degrees": 120}],
+      "strength_grades": [{"side": "R", "muscle_group": "shoulder flexion", "grade": 3, "modifier": "+", "label": "3+/5"}]
     },
-    "skin_integrity": {"intact": true, "areas_of_concern": []},
+    "skin_integrity": {"intact": null, "areas_of_concern": []},
     "codes": {"g_codes": [], "cpt_codes": [], "modifiers": []},
     "safety_observations": {
       "hand_placements": [],
@@ -113,7 +113,7 @@ Content-Type: application/json
   "metadata": {
     "note_type": "initial-eval",
     "target_ehr": "therapyboss",
-    "model_used": "groq",
+    "model_used": "groq:openai/gpt-oss-120b",
     "attempts": 1,
     "duration_ms": 3200,
     "timestamp": "2024-01-01T00:00:00.000Z"

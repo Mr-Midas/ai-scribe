@@ -11,12 +11,12 @@ const ASSIST_LEVELS = [
 
 const MASTER_KEY = 'nscrb_master_2026';
 
-async function authenticateRequest(request) {
+async function authenticateRequest(request, env) {
   const apiKey = request.headers.get('X-API-Key');
   if (!apiKey) return { valid: false, error: 'Missing X-API-Key header' };
   if (apiKey === MASTER_KEY) return { valid: true, key: apiKey, tier: 'unlimited' };
   try {
-    const keyData = await API_KEYS.get(apiKey);
+    const keyData = await env.API_KEYS.get(apiKey);
     if (!keyData) return { valid: false, error: 'Invalid API key' };
     const parsed = JSON.parse(keyData);
     if (!parsed.active) return { valid: false, error: 'API key deactivated' };
@@ -26,20 +26,20 @@ async function authenticateRequest(request) {
   }
 }
 
-async function checkRateLimit(apiKey, tier) {
+async function checkRateLimit(apiKey, tier, env) {
   const now = Date.now();
   const windowMs = 60000;
   const limits = { standard: 100, premium: 1000, unlimited: Infinity };
   const limit = limits[tier] || 100;
   try {
-    const data = await RATE_LIMITS.get(`rl_${apiKey}`);
+    const data = await env.RATE_LIMITS.get(`rl_${apiKey}`);
     const record = data ? JSON.parse(data) : { count: 0, reset: now + windowMs };
     if (now > record.reset) {
       record.count = 0;
       record.reset = now + windowMs;
     }
     record.count++;
-    await RATE_LIMITS.put(`rl_${apiKey}`, JSON.stringify(record), { expirationTtl: 120 });
+    await env.RATE_LIMITS.put(`rl_${apiKey}`, JSON.stringify(record), { expirationTtl: 120 });
     return { allowed: record.count <= limit, remaining: Math.max(0, limit - record.count), reset: record.reset };
   } catch (e) {
     return { allowed: true, remaining: limit, reset: now + windowMs };
@@ -60,14 +60,17 @@ function buildSystemPrompt(noteType, targetEHR) {
   const rules = [
     'Convert OT shorthand notes to SOAP format.',
     'Plain text only. No markdown or placeholders.',
-    'Use SOAP headers ONLY for sections with data.',
-    'Omit sections with no data. Do not invent information.',
+    'Always use exactly these four headers, each on its own line: "Subjective:", "Objective:", "Assessment:", "Plan:".',
+    'Never invent findings, measurements, scores or codes. If a section has no supporting data, write "Not documented this session." under its header.',
     'Use skilled language: "Therapist facilitated...", "Instructed patient in...", "Tactile cues required for..."',
     'Include exact sets, reps, distances, and assistance levels.',
-    'Tie every intervention to a functional goal.'
+    'Tie every intervention to a functional goal.',
+    'Do NOT output billing codes (CPT, HCPCS, G-codes, ICD-10) unless they appear in the raw notes; coding is the clinician\'s responsibility. Medicare functional limitation G-codes were discontinued on 1/1/2019.'
   ].join('\n');
 
-  const assist = 'Assistance levels (use exact terms): Independent, Supervision (verbal/visual only), Standby Assist/SBA (ready, no contact), Contact Guard Assist/CGA (light touch), Min A (75%+), Mod A (50-74%), Max A (25-49%), Total Assist (<25%).';
+  const measures = 'Measurements (only when given in the raw notes): ROM as side + joint + motion + AROM/PROM + degrees, e.g. "R hip flexion AROM 0-90 degrees". Strength as MMT grade on the 0-5 scale with optional +/-, e.g. "R hip abduction 3+/5". Never write MMT grades as degrees or degrees as MMT grades.';
+
+  const assist = 'Assistance levels (use exact terms; percentages are the share of effort the PATIENT performs): Independent, Supervision (verbal/visual only), Standby Assist/SBA (ready, no contact), Contact Guard Assist/CGA (light touch), Min A (patient 75%+), Mod A (patient 50-74%), Max A (patient 25-49%), Total Assist (patient <25%). State the level per activity.';
 
   const equip = 'Adaptive equipment: Reacher (NEVER "grabber" or "reacher wand"), Dressing Stick, Sock Aide, Leg Lifter, Shoe Horn, Built-up Handles, Universal Cuff, Dycem, Button Hook.';
 
@@ -82,19 +85,19 @@ function buildSystemPrompt(noteType, targetEHR) {
 
   let ehrRules = '';
   if (targetEHR === 'therapyboss') {
-    ehrRules = 'THERAPYBOSS FORMAT: Emphasize Section GG functional abilities (self-care, mobility), G-codes with modifiers, functional limitation reporting, and measurable outcomes. Include FIM-level descriptors where applicable.';
+    ehrRules = 'THERAPYBOSS FORMAT: Emphasize Section GG functional abilities (self-care, mobility) and measurable outcomes. When the raw notes give enough detail, the matching OASIS Section GG performance level may be noted (06 Independent, 05 Setup/clean-up, 04 Supervision/touching, 03 Partial/moderate, 02 Substantial/maximal, 01 Dependent).';
   } else if (targetEHR === 'kinnser') {
     ehrRules = 'KINNSER FORMAT: Emphasize intake assessment structure (age, weight, height, initial impression, plan), progress note outcomes, and discharge summary fields. Include functional status measurements and safety data.';
   }
 
-  return `${rules}\n\n${assist}\n\n${equip}\n\n${noteTypeRules}\n\n${context}\n\n${ehrRules}\n\nOutput ONLY the SOAP note text. No explanations, no markdown, no JSON wrapper.`;
+  return `${rules}\n\n${measures}\n\n${assist}\n\n${equip}\n\n${noteTypeRules}\n\n${context}\n\n${ehrRules}\n\nOutput ONLY the SOAP note text. No explanations, no markdown, no JSON wrapper.`;
 }
 
 function extractStructuredData(noteText, noteType) {
   const structured = {
     subjective: '', objective: '', assessment: '', plan: '',
     functional_abilities: { goals: [], activities: [], current_level: null, target_level: null, rom_measurements: [], strength_grades: [] },
-    skin_integrity: { intact: true, areas_of_concern: [], breakdown: null, staging: null },
+    skin_integrity: { intact: null, areas_of_concern: [], breakdown: null, staging: null },
     codes: { g_codes: [], modifiers: [], cpt_codes: [], functional_limitations: [] },
     safety_observations: { hand_placements: [], time_to_complete: null, attempts: null, cues: [], fall_risk: false },
     equipment_used: []
@@ -121,17 +124,8 @@ function extractStructuredData(noteText, noteType) {
   const activityMatches = noteText.match(/(?:Instructed|Facilitated|Trained|Performed)\s+([^.]+)/gi) || [];
   structured.functional_abilities.activities = activityMatches.map(a => a.trim());
 
-  const romMatches = noteText.match(/(?:flexion|abduction|extension|rotation|adduction)[:\s]+(\d+)/gi) || [];
-  structured.functional_abilities.rom_measurements = romMatches.map(r => {
-    const parts = r.match(/(flexion|abduction|extension|rotation|adduction)[:\s]+(\d+)/i);
-    return { movement: parts[1].toLowerCase(), degrees: parseInt(parts[2]) };
-  });
-
-  const mmtMatches = noteText.match(/(\w+(?:\s+\w+)?)\s*(\d)\/5/gi) || [];
-  structured.functional_abilities.strength_grades = mmtMatches.map(m => {
-    const parts = m.match(/(\w+(?:\s+\w+)?)\s*(\d)\/5/i);
-    return { muscle_group: parts[1].trim(), grade: parseInt(parts[2]) };
-  });
+  structured.functional_abilities.rom_measurements = extractROM(noteText);
+  structured.functional_abilities.strength_grades = extractMMT(noteText);
 
   const timeMatch = noteText.match(/Time[:\s]+(\d+)\s*min/i);
   if (timeMatch) structured.safety_observations.time_to_complete = parseInt(timeMatch[1]);
@@ -152,16 +146,20 @@ function extractStructuredData(noteText, noteType) {
     structured.safety_observations.fall_risk = true;
   }
 
-  if (/pain|swelling|redness|breakdown|ulcer|wound|skin/i.test(noteText)) {
+  // Skin integrity is only set when the note documents it; pain or edema alone
+  // say nothing about the skin. null means "not assessed / not documented".
+  const skinFindings = [];
+  if (/redness|erythema|non-?blanchable/i.test(noteText)) skinFindings.push('redness');
+  if (/breakdown|ulcer|wound|pressure injur|abrasion|skin tear|laceration/i.test(noteText)) skinFindings.push('breakdown');
+  if (/maceration|macerated/i.test(noteText)) skinFindings.push('maceration');
+  if (skinFindings.length > 0) {
     structured.skin_integrity.intact = false;
-    const concerns = [];
-    if (/pain/i.test(noteText)) concerns.push('pain');
-    if (/swelling|edema/i.test(noteText)) concerns.push('swelling');
-    if (/redness|erythema/i.test(noteText)) concerns.push('redness');
-    if (/breakdown|ulcer|wound/i.test(noteText)) concerns.push('breakdown');
-    structured.skin_integrity.areas_of_concern = [...new Set(concerns)];
-    const stageMatch = noteText.match(/stage\s*(\d+|I{1,3}V?)/i);
+    structured.skin_integrity.areas_of_concern = skinFindings;
+    structured.skin_integrity.breakdown = skinFindings.includes('breakdown');
+    const stageMatch = noteText.match(/stage\s*(\d|I{1,3}V?|IV)\b/i);
     if (stageMatch) structured.skin_integrity.staging = stageMatch[1];
+  } else if (/skin (?:is |was |remains )?intact|skin integrity (?:is |was )?(?:intact|WNL|within normal limits)/i.test(noteText)) {
+    structured.skin_integrity.intact = true;
   }
 
   for (const equip of EQUIPMENT_LIST) {
@@ -192,6 +190,65 @@ function extractStructuredData(noteText, noteType) {
   return structured;
 }
 
+const SIDE = String.raw`(?:(R|L|B|right|left|bilateral|bilat)\.?\s+)?`;
+const JOINT = String.raw`(?:(shoulder|elbow|wrist|forearm|hip|knee|ankle|cervical|lumbar|trunk|thumb|finger|digit)s?\s+)?`;
+const MOTION = String.raw`(flexion|extension|abduction|adduction|internal rotation|external rotation|IR|ER|rotation|supination|pronation|dorsiflexion|plantarflexion|plantar flexion|radial deviation|ulnar deviation|inversion|eversion)`;
+
+// Goniometric ROM, e.g. "R hip flexion AROM 0-90 degrees", "knee extension: -10".
+// A number followed by "/5" is an MMT grade and is never taken as degrees.
+const ROM_RE = new RegExp(String.raw`\b${SIDE}${JOINT}${MOTION}\b[:\s]*(?:\(?(AROM|PROM|AAROM)\)?[:\s]*)?(?:(-?\d{1,3})\s*(?:-|–|to)\s*)?(-?\d{1,3})(?![\d.]|\s*[+-]?\s*\/\s*5)\s*(°|deg(?:rees)?\b)?`, 'gi');
+
+// Manual muscle testing, e.g. "R hip flexion 3/5", "grip 4-/5", "shoulder abduction 3+/5".
+const MMT_RE = new RegExp(String.raw`\b${SIDE}${JOINT}(${MOTION.slice(1, -1)}|grip|pinch|[a-z]+)?[:\s]*(?:MMT[:\s]*)?\b([0-5])([+-])?\s*\/\s*5\b`, 'gi');
+
+function normalizeSide(side) {
+  if (!side) return null;
+  const s = side.toLowerCase();
+  if (s.startsWith('r')) return 'R';
+  if (s.startsWith('l')) return 'L';
+  return 'B';
+}
+
+function extractROM(text) {
+  const results = [];
+  for (const m of String(text || '').matchAll(ROM_RE)) {
+    const [, side, joint, movement, type, from, to, unit] = m;
+    const degrees = parseInt(to, 10);
+    if (Math.abs(degrees) > 180) continue;
+    // Without a unit, AROM/PROM tag, range, or ROM on the same line, a number after
+    // "flexion" is as likely to be reps or sets as degrees.
+    const lineStart = m.input.lastIndexOf('\n', m.index) + 1;
+    const lineEnd = m.input.indexOf('\n', m.index);
+    const line = m.input.slice(lineStart, lineEnd === -1 ? undefined : lineEnd);
+    if (!unit && !type && from === undefined && !/\bROM\b|range of motion/i.test(line)) continue;
+    results.push({
+      side: normalizeSide(side),
+      joint: joint ? joint.toLowerCase() : null,
+      movement: movement.toLowerCase(),
+      type: type ? type.toUpperCase() : null,
+      start_degrees: from !== undefined ? parseInt(from, 10) : null,
+      degrees
+    });
+  }
+  return results;
+}
+
+function extractMMT(text) {
+  const results = [];
+  for (const m of String(text || '').matchAll(MMT_RE)) {
+    const [, side, joint, group, grade, modifier] = m;
+    const muscleGroup = [joint, group].filter(Boolean).join(' ').toLowerCase() || null;
+    results.push({
+      side: normalizeSide(side),
+      muscle_group: muscleGroup,
+      grade: parseInt(grade, 10),
+      modifier: modifier || null,
+      label: `${grade}${modifier || ''}/5`
+    });
+  }
+  return results;
+}
+
 function codeDescription(code) {
   const codes = {
     '97530': 'Therapeutic activities', '97110': 'Therapeutic procedure',
@@ -207,6 +264,16 @@ function codeDescription(code) {
 const SOAP_HEADER_RE = /^[ \t]*(?:#{1,6}[ \t]*)?\**[ \t]*(Subjective|Objective|Assessment|Plan|S|O|A|P)[ \t]*\**[ \t]*(?::|$)\**|\b(Subjective|Objective|Assessment|Plan)[ \t]*:/gim;
 
 const SOAP_KEYS = { s: 'subjective', o: 'objective', a: 'assessment', p: 'plan' };
+
+// HCPCS G-codes (G + 4 digits), CPT codes, and "code-like" 5-digit numbers next to
+// billing words. Bare 5-digit numbers elsewhere (e.g. a ZIP) are ignored.
+function findBillingCodes(text) {
+  const str = String(text || '');
+  const gcodes = str.match(/\bG\d{4}\b/g) || [];
+  const labelled = [...str.matchAll(/\b(?:CPT|HCPCS|G-?codes?|codes?|billing)\b[^\n.]{0,40}?\b(\d{5})\b/gi)].map(m => m[1]);
+  const listed = [...str.matchAll(/\b(\d{5})\s*[-:]\s*[A-Z][a-z]+/g)].map(m => m[1]);
+  return [...gcodes, ...labelled, ...listed];
+}
 
 function parseSOAP(text) {
   const source = String(text || '');
@@ -224,7 +291,7 @@ function parseSOAP(text) {
   return sections;
 }
 
-function validateClinicalContent(text, noteType, targetEHR) {
+function validateClinicalContent(text, noteType, targetEHR, sourceNotes) {
   const issues = [];
   const warnings = [];
 
@@ -234,8 +301,22 @@ function validateClinicalContent(text, noteType, targetEHR) {
   if (!('assessment' in sections)) issues.push('Missing Assessment section');
   if (!('plan' in sections)) issues.push('Missing Plan section');
 
+  // A missing assist level is a warning, not a retry trigger: if the raw notes
+  // don't contain one, regenerating can only fabricate it.
   const hasAssistLevel = ASSIST_LEVELS.some(({ pattern }) => pattern.test(text));
-  if (!hasAssistLevel) issues.push('No assistance level documented');
+  if (!hasAssistLevel) warnings.push('No assistance level documented');
+
+  if (sourceNotes) {
+    const source = String(sourceNotes);
+    const invented = findBillingCodes(text).filter(code => !source.includes(code));
+    if (invented.length > 0) {
+      issues.push(`Remove billing codes not present in the raw notes: ${[...new Set(invented)].join(', ')}`);
+    }
+  }
+
+  if (/\b[0-5][+-]?\/5\s*(?:°|deg)/i.test(text)) {
+    issues.push('MMT grade written with degrees; use x/5 for strength and degrees for ROM');
+  }
 
   if (/grabber|reacher wand/i.test(text)) {
     issues.push('Incorrect equipment term: use "reacher" not "grabber"');
@@ -264,9 +345,6 @@ function validateClinicalContent(text, noteType, targetEHR) {
   }
 
   if (targetEHR === 'therapyboss') {
-    if (!/G\d{4,5}|G-code|functional limitation/i.test(text)) {
-      warnings.push('TherapyBOSS notes should include G-codes or functional limitation reporting');
-    }
     if (!/Section GG|self-care|mobility/i.test(text)) {
       warnings.push('TherapyBOSS notes should reference Section GG functional abilities');
     }
@@ -284,35 +362,27 @@ function validateClinicalContent(text, noteType, targetEHR) {
     }
   }
 
-  if (!/skin|integrity|wound|ulcer|breakdown/i.test(text)) {
-    warnings.push('Section M: Document skin integrity status');
-  }
-
-  if (!/G\d{4,5}/.test(text) && !/functional limitation/i.test(text)) {
-    warnings.push('G-code functional limitation reporting recommended');
+  if ((targetEHR === 'kinnser' || targetEHR === 'therapyboss') && !/skin|integrity|wound|ulcer|breakdown|pressure injur/i.test(text)) {
+    warnings.push('Skin integrity not documented (OASIS integumentary items); add only if assessed');
   }
 
   return { valid: issues.length === 0, issues, warnings };
 }
 
-function buildRetryPrompt(originalPrompt, validation, noteType) {
-  const feedback = [];
-  if (validation.issues.length > 0) {
-    feedback.push(`Fix these issues: ${validation.issues.join('; ')}`);
-  }
-  if (validation.warnings.length > 0) {
-    feedback.push(`Address these: ${validation.warnings.join('; ')}`);
-  }
-  return `${originalPrompt}\n\nIMPORTANT CORRECTIONS NEEDED:\n${feedback.join('\n')}\n\nRegenerate the complete SOAP note with these corrections.`;
+function buildRetryPrompt(originalPrompt, validation) {
+  // Only structural issues are fed back. Content warnings (missing skin, goals, etc.)
+  // are not, because asking the model to "add" them invites fabricated findings.
+  return `${originalPrompt}\n\nIMPORTANT CORRECTIONS NEEDED:\nFix these issues: ${validation.issues.join('; ')}\n\nRegenerate the complete SOAP note. Use only information present in the raw notes; if a section has no supporting data, write "Not documented this session." under its header.`;
 }
 
-async function generateWithRetry(systemPrompt, userPrompt, noteType, targetEHR) {
-  const groqKey = CLOUDFLARE_ENV.GROQ_API_KEY;
-  const openrouterKey = CLOUDFLARE_ENV.OPENROUTER_API_KEY;
+async function generateWithRetry(systemPrompt, userPrompt, noteType, targetEHR, env, sourceNotes) {
+  const groqKey = env.GROQ_API_KEY;
+  const openrouterKey = env.OPENROUTER_API_KEY;
 
   let currentPrompt = userPrompt;
   let lastNote = null;
   let lastValidation = null;
+  let lastModel = null;
 
   for (let attempt = 0; attempt < 3; attempt++) {
     let note = null;
@@ -320,8 +390,8 @@ async function generateWithRetry(systemPrompt, userPrompt, noteType, targetEHR) 
 
     if (groqKey) {
       try {
-        note = await callGroq(systemPrompt, currentPrompt, groqKey);
-        modelUsed = 'groq';
+        note = await callGroq(systemPrompt, currentPrompt, groqKey, env.GROQ_MODEL || DEFAULT_GROQ_MODEL);
+        modelUsed = `groq:${env.GROQ_MODEL || DEFAULT_GROQ_MODEL}`;
       } catch (e) {
         console.error(`Groq attempt ${attempt + 1} failed:`, e.message);
       }
@@ -329,8 +399,8 @@ async function generateWithRetry(systemPrompt, userPrompt, noteType, targetEHR) 
 
     if (!note && openrouterKey) {
       try {
-        note = await callOpenRouter(systemPrompt, currentPrompt, openrouterKey);
-        modelUsed = 'openrouter';
+        note = await callOpenRouter(systemPrompt, currentPrompt, openrouterKey, env.OPENROUTER_MODEL || DEFAULT_OPENROUTER_MODEL);
+        modelUsed = `openrouter:${env.OPENROUTER_MODEL || DEFAULT_OPENROUTER_MODEL}`;
       } catch (e) {
         console.error(`OpenRouter attempt ${attempt + 1} failed:`, e.message);
       }
@@ -339,45 +409,56 @@ async function generateWithRetry(systemPrompt, userPrompt, noteType, targetEHR) 
     if (!note) continue;
 
     lastNote = note;
-    lastValidation = validateClinicalContent(note, noteType, targetEHR);
+    lastModel = modelUsed;
+    lastValidation = validateClinicalContent(note, noteType, targetEHR, sourceNotes);
 
     if (lastValidation.valid) {
       return { note, validation: lastValidation, modelUsed, attempts: attempt + 1 };
     }
 
     if (attempt < 2) {
-      currentPrompt = buildRetryPrompt(userPrompt, lastValidation, noteType);
+      currentPrompt = buildRetryPrompt(userPrompt, lastValidation);
     }
   }
 
   return {
     note: lastNote,
     validation: lastValidation || { valid: false, issues: ['All retries failed'], warnings: [] },
-    modelUsed: 'unknown',
+    modelUsed: lastModel || 'none',
     attempts: 3
   };
 }
 
-async function callGroq(systemPrompt, userPrompt, apiKey) {
+// llama3-70b-8192 and llama-3.3-70b-versatile have both been decommissioned by Groq.
+// Override with the GROQ_MODEL / OPENROUTER_MODEL vars without redeploying code.
+const DEFAULT_GROQ_MODEL = 'openai/gpt-oss-120b';
+const DEFAULT_OPENROUTER_MODEL = 'meta-llama/llama-3.1-70b-instruct';
+
+async function callGroq(systemPrompt, userPrompt, apiKey, model) {
+  const body = {
+    model,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ],
+    temperature: 0.3,
+    max_tokens: 2048
+  };
+  // gpt-oss models spend output tokens on reasoning; keep it short for latency.
+  if (model.startsWith('openai/gpt-oss')) body.reasoning_effort = 'low';
   const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'llama3-70b-8192',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
-      temperature: 0.3,
-      max_tokens: 1024
-    })
+    body: JSON.stringify(body)
   });
-  if (!response.ok) throw new Error(`Groq ${response.status}`);
+  if (!response.ok) throw new Error(`Groq ${response.status}: ${(await response.text()).slice(0, 200)}`);
   const data = await response.json();
-  return data.choices[0].message.content;
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) throw new Error('Groq returned empty content');
+  return content;
 }
 
-async function callOpenRouter(systemPrompt, userPrompt, apiKey) {
+async function callOpenRouter(systemPrompt, userPrompt, apiKey, model) {
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -387,7 +468,7 @@ async function callOpenRouter(systemPrompt, userPrompt, apiKey) {
       'X-Title': 'Note Scribe AI'
     },
     body: JSON.stringify({
-      model: 'meta-llama/llama-3.1-70b-instruct',
+      model,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
@@ -430,7 +511,7 @@ function formatTherapyBOSS(data) {
       fall_risk: data.safety_observations?.fall_risk || false
     },
     skin_integrity: {
-      intact: data.skin_integrity?.intact ?? true,
+      intact: data.skin_integrity?.intact ?? null,
       areas_of_concern: data.skin_integrity?.areas_of_concern || [],
       breakdown: data.skin_integrity?.breakdown || null
     },
@@ -461,7 +542,7 @@ function formatKinnser(data) {
       strength_grades: data.functional_abilities?.strength_grades || []
     },
     skin_integrity: {
-      intact: data.skin_integrity?.intact ?? true,
+      intact: data.skin_integrity?.intact ?? null,
       areas_of_concern: data.skin_integrity?.areas_of_concern || [],
       breakdown: data.skin_integrity?.breakdown || null,
       staging: data.skin_integrity?.staging || null
@@ -508,7 +589,7 @@ function stripMetadata(obj) {
   return stripped;
 }
 
-async function auditLog(event) {
+async function auditLog(event, env) {
   try {
     const entry = {
       timestamp: new Date().toISOString(),
@@ -524,7 +605,7 @@ async function auditLog(event) {
       attempts: event.attempts || null
     };
 
-    const logUrl = CLOUDFLARE_ENV.AUDIT_LOG_URL;
+    const logUrl = env.AUDIT_LOG_URL;
     if (logUrl) {
       await fetch(logUrl, {
         method: 'POST',
@@ -583,7 +664,7 @@ function jsonResponse(data, status = 200) {
   });
 }
 
-async function handleApiRequest(request) {
+async function handleApiRequest(request, env, ctx) {
   const url = new URL(request.url);
   const path = url.pathname;
 
@@ -599,12 +680,12 @@ async function handleApiRequest(request) {
     return handleUsageStats(request);
   }
 
-  const auth = await authenticateRequest(request);
+  const auth = await authenticateRequest(request, env);
   if (!auth.valid) {
     return jsonResponse({ error: auth.error }, 401);
   }
 
-  const rateLimit = await checkRateLimit(auth.key, auth.tier);
+  const rateLimit = await checkRateLimit(auth.key, auth.tier, env);
   if (!rateLimit.allowed) {
     return jsonResponse({ error: 'Rate limit exceeded', retry_after_ms: rateLimit.reset - Date.now() }, 429);
   }
@@ -617,7 +698,7 @@ async function handleApiRequest(request) {
 
   let response;
   if (request.method === 'POST' && path === '/api/v1/notes/generate') {
-    response = await handleGenerateNote(request);
+    response = await handleGenerateNote(request, env, ctx);
   } else if (request.method === 'POST' && path === '/api/v1/notes/extract') {
     response = await handleExtractStructured(request);
   } else if (request.method === 'POST' && path === '/api/v1/notes/format') {
@@ -655,7 +736,7 @@ async function handleUsageStats(request) {
   });
 }
 
-async function handleGenerateNote(request) {
+async function handleGenerateNote(request, env, ctx) {
   const startTime = Date.now();
   try {
     const body = await request.json();
@@ -669,7 +750,7 @@ async function handleGenerateNote(request) {
     const noteTypeLabel = note_type === 'initial-eval' ? 'INITIAL EVALUATION' : 'TREATMENT / RE-EVALUATION';
     const userPrompt = `Note Type: ${noteTypeLabel}\n\nRaw Notes:\n${raw_notes}`;
 
-    const result = await generateWithRetry(prompt, userPrompt, note_type, target_ehr);
+    const result = await generateWithRetry(prompt, userPrompt, note_type, target_ehr, env, raw_notes);
 
     if (!result.note) {
       return jsonResponse({ error: 'All models failed after retries' }, 500);
@@ -691,12 +772,12 @@ async function handleGenerateNote(request) {
       validationWarnings: result.validation.warnings,
       attempts: result.attempts,
       metadata: stripMetadata({ raw_notes, note_type, target_ehr })
-    });
+    }, env);
 
     if (webhook_url && formatted) {
-      deliverWebhook(webhook_url, formatted, webhook_secret).catch(e =>
+      ctx.waitUntil(deliverWebhook(webhook_url, formatted, webhook_secret).catch(e =>
         console.error('Webhook delivery failed:', e.message)
-      );
+      ));
     }
 
     return jsonResponse({
@@ -747,7 +828,7 @@ async function handleValidateNote(request) {
   try {
     const body = await request.json();
     if (!body.note_text) return jsonResponse({ error: 'Missing note_text' }, 400);
-    const validation = validateClinicalContent(body.note_text, body.note_type || 'general', body.target_ehr);
+    const validation = validateClinicalContent(body.note_text, body.note_type || 'general', body.target_ehr, body.raw_notes);
     return jsonResponse({ success: true, validation });
   } catch (error) {
     return jsonResponse({ error: error.message }, 500);
@@ -767,6 +848,8 @@ async function handleWebhookDeliver(request) {
   }
 }
 
-addEventListener('fetch', event => {
-  event.respondWith(handleApiRequest(event.request));
-});
+export default {
+  fetch(request, env, ctx) {
+    return handleApiRequest(request, env, ctx);
+  }
+};
