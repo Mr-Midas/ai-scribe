@@ -236,11 +236,11 @@ Note Scribe AI includes a REST API for EHR integration (TherapyBOSS, Kinnser). S
 **Base URL:** `https://note-scribe-ai-api.thomelfin529.workers.dev`
 
 **Key Features:**
-- Multi-model fallback (Groq → OpenRouter) with automatic retry (up to 3 attempts)
-- Deep structured data extraction: Section GG, CPT codes, ROM, MMT, assistance levels
+- Multi-model fallback (Groq → OpenRouter) with automatic retry (up to 3 attempts) and a 20-second timeout per model call
+- Deep structured data extraction: Section GG, CPT codes, ROM (side, joint, AROM/PROM, degrees), MMT (0-5 with +/-), assistance levels
 - EHR-specific formatters for TherapyBOSS and Kinnser
 - Webhook auto-delivery after generation
-- Zero-retention policy (no data stored)
+- No note content is stored by the API itself
 - Audit logging (metadata only, no PHI)
 
 **Key Endpoints:**
@@ -249,6 +249,58 @@ Note Scribe AI includes a REST API for EHR integration (TherapyBOSS, Kinnser). S
 - `POST /api/v1/notes/format` - Format for specific EHR (TherapyBOSS/Kinnser)
 - `POST /api/v1/notes/validate` - Validate clinical content
 - `POST /api/v1/webhooks/deliver` - Deliver to EHR webhooks
+
+### Reliability safeguards
+
+AI models sometimes add details that sound clinical but were never documented. Every generated note is checked before it is returned:
+
+| Check | What happens |
+|-------|--------------|
+| **Every number must come from the raw notes.** Measurements, reps, sets, durations, pain scores, MMT grades, ROM degrees, dates, and sprain/wound grades or stages that are not in `raw_notes` | The note is regenerated with the invented values named. If they persist after 3 attempts, the response has `review_required: true`. |
+| **No invented billing codes.** CPT, HCPCS and G-codes not present in `raw_notes` | Same as above. (Medicare functional limitation G-codes were discontinued on 1/1/2019 and are never requested.) |
+| **All four SOAP sections present.** Full (`Subjective:`) or abbreviated (`S:`) headers | Same as above. Empty sections read "Not documented this session." |
+| **Structured fields are grounded.** ROM and MMT values not in `raw_notes` | Dropped from `structured` / `formatted`, so they never reach an EHR field. |
+| **Gaps are warnings, not retries.** Missing assistance level, skin integrity, goals | Reported in `validation.warnings`. The model is never asked to "add" missing data, because that is how fabrication happens. |
+
+**Integration rule for EHR clients:** if `review_required` is `true`, show the note to the clinician for review instead of filing it automatically. `validation.issues` lists exactly what needs attention.
+
+### Configuration
+
+Set these on the Cloudflare Worker (Dashboard → Workers & Pages → `note-scribe-ai-api` → Settings → Variables and Secrets, or `npx wrangler secret put NAME`):
+
+| Name | Required | Purpose |
+|------|----------|---------|
+| `GROQ_API_KEY` | One of these two | Primary model provider |
+| `OPENROUTER_API_KEY` | One of these two | Fallback model provider |
+| `GROQ_MODEL` | No | Override the Groq model (default `openai/gpt-oss-120b`) |
+| `OPENROUTER_MODEL` | No | Override the OpenRouter model (default `meta-llama/llama-3.1-70b-instruct`) |
+| `AUDIT_LOG_URL` | No | Endpoint that receives metadata-only audit events |
+
+`API_KEYS` and `RATE_LIMITS` are KV namespaces already bound in `wrangler.toml`.
+
+Model providers retire models regularly (Groq retired `llama3-70b-8192` in 2025 and `llama-3.3-70b-versatile` in 2026). When that happens, set `GROQ_MODEL` to the replacement. No code change or redeploy is needed. Then run the live evaluation below to confirm quality.
+
+### Deploying
+
+```bash
+npm test               # must pass
+npx wrangler deploy
+```
+
+### Testing
+
+- **Unit tests** (`npm test`): parsing, extraction and every safeguard above, with no network or API keys needed. Runs automatically on every push via GitHub Actions.
+- **Live evaluation** (`npm run eval`): sends every sample note in `tests/fixtures.js` through the real `/generate` pipeline and fails if any output has invented values, invented codes, missing sections, or `review_required`.
+  - Against the models directly: `GROQ_API_KEY=... OPENROUTER_API_KEY=... npm run eval`
+  - Against the deployed API: `EVAL_BASE_URL=https://note-scribe-ai-api.thomelfin529.workers.dev EVAL_API_KEY=nscrb_... npm run eval`
+  - `EVAL_RUNS=3` repeats each note to measure consistency. `EVAL_VERBOSE=1` prints failing notes.
+  - In GitHub Actions it runs when `GROQ_API_KEY` / `OPENROUTER_API_KEY` are added under the repo's Settings → Secrets and variables → Actions.
+
+Add a fixture to `tests/fixtures.js` whenever a customer reports a bad note, so the same failure can't return unnoticed.
+
+### Compliance note
+
+Raw notes sent to this API are forwarded to the configured model provider. Before processing real patient data (PHI), each provider in the chain must be covered by a signed HIPAA Business Associate Agreement (BAA), and its data-retention terms must be confirmed. EHR customers will ask for this. OpenRouter forwards requests to many different underlying providers, which makes BAA coverage hard to guarantee. HIPAA-eligible options include the major cloud AI platforms (AWS Bedrock, Azure, Google Vertex AI) and model vendors' enterprise APIs that offer a BAA.
 
 ## Requirements
 

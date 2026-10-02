@@ -50,6 +50,7 @@ POST /api/v1/notes/generate
 **Headers:**
 ```
 Content-Type: application/json
+X-API-Key: nscrb_your_key
 ```
 
 **Body:**
@@ -73,12 +74,13 @@ Content-Type: application/json
 | target_ehr | string | No | `therapyboss`, `kinnser`, or omit |
 | system_prompt | string | No | Custom system prompt |
 | webhook_url | string | No | Auto-deliver formatted note to this URL |
-| webhook_secret | string | No | HMAC signature secret |
+| webhook_secret | string | No | Secret for the `X-Signature` HMAC-SHA256 header (see Webhook Delivery) |
 
 **Response:**
 ```json
 {
   "success": true,
+  "review_required": false,
   "note": "Subjective: ...\nObjective: ...",
   "structured": {
     "subjective": "...",
@@ -121,6 +123,14 @@ Content-Type: application/json
 }
 ```
 
+**Reliability fields:**
+
+- `review_required`: `true` when the note still failed validation after 3 attempts, for example because it contains a measurement, score, grade or billing code that is not in `raw_notes`. **Do not file these automatically.** Show the note to the clinician, with `validation.issues`, for review.
+- `validation.issues`: problems that block automatic filing (invented values or codes, missing SOAP sections).
+- `validation.warnings`: documentation gaps worth surfacing (no assistance level, skin integrity not documented). They never trigger a retry, because the model is never asked to add data the clinician didn't record.
+- `structured` ROM and MMT values that don't appear in `raw_notes` are dropped, so they never reach discrete EHR fields.
+- `skin_integrity.intact` is `null` when the note doesn't document skin.
+
 ### Extract Structured Data
 
 ```
@@ -131,7 +141,8 @@ POST /api/v1/notes/extract
 ```json
 {
   "note_text": "Subjective: ...",
-  "note_type": "initial-eval"
+  "note_type": "initial-eval",
+  "raw_notes": "optional; when given, ROM/MMT values not found in it are dropped"
 }
 ```
 
@@ -160,7 +171,8 @@ POST /api/v1/notes/validate
 {
   "note_text": "Subjective: ...",
   "note_type": "treatment",
-  "target_ehr": "kinnser"
+  "target_ehr": "kinnser",
+  "raw_notes": "optional; when given, values and codes not found in it are reported as issues"
 }
 ```
 
@@ -178,6 +190,8 @@ POST /api/v1/webhooks/deliver
   "secret": "signing-secret"
 }
 ```
+
+**Verifying webhook signatures:** when a secret is set, each delivery carries `X-Signature: sha256=<hex>`, the HMAC-SHA256 of the raw request body using your secret. Compute the same HMAC over the body bytes exactly as received, before parsing the JSON, and compare it in constant time.
 
 ## EHR Formatters
 
