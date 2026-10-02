@@ -201,18 +201,26 @@ function codeDescription(code) {
   return codes[code] || code;
 }
 
+// Matches SOAP headers in full ("Subjective:") or abbreviated ("S:") form, with
+// optional markdown decoration ("## S:", "**O:**"). Abbreviated headers must start
+// a line; full-word headers may also appear inline when followed by a colon.
+const SOAP_HEADER_RE = /^[ \t]*(?:#{1,6}[ \t]*)?\**[ \t]*(Subjective|Objective|Assessment|Plan|S|O|A|P)[ \t]*\**[ \t]*(?::|$)\**|\b(Subjective|Objective|Assessment|Plan)[ \t]*:/gim;
+
+const SOAP_KEYS = { s: 'subjective', o: 'objective', a: 'assessment', p: 'plan' };
+
 function parseSOAP(text) {
-  const sections = {};
-  const patterns = {
-    subjective: /Subjective[:\s]*([\s\S]*?)(?=Objective|Assessment|Plan|$)/i,
-    objective: /Objective[:\s]*([\s\S]*?)(?=Subjective|Assessment|Plan|$)/i,
-    assessment: /Assessment[:\s]*([\s\S]*?)(?=Subjective|Objective|Plan|$)/i,
-    plan: /Plan[:\s]*([\s\S]*?)(?=Subjective|Objective|Assessment|$)/i
-  };
-  for (const [key, pattern] of Object.entries(patterns)) {
-    const match = text.match(pattern);
-    if (match) sections[key] = match[1].trim();
+  const source = String(text || '');
+  const headers = [];
+  for (const match of source.matchAll(SOAP_HEADER_RE)) {
+    const label = match[1] || match[2];
+    headers.push({ key: SOAP_KEYS[label[0].toLowerCase()], start: match.index, end: match.index + match[0].length });
   }
+  const sections = {};
+  headers.forEach((header, i) => {
+    if (header.key in sections) return;
+    const next = headers[i + 1];
+    sections[header.key] = source.slice(header.end, next ? next.start : source.length).trim();
+  });
   return sections;
 }
 
@@ -220,10 +228,11 @@ function validateClinicalContent(text, noteType, targetEHR) {
   const issues = [];
   const warnings = [];
 
-  if (!/Subjective[:\s]/i.test(text)) issues.push('Missing Subjective section');
-  if (!/Objective[:\s]/i.test(text)) issues.push('Missing Objective section');
-  if (!/Assessment[:\s]/i.test(text)) issues.push('Missing Assessment section');
-  if (!/Plan[:\s]/i.test(text)) issues.push('Missing Plan section');
+  const sections = parseSOAP(text);
+  if (!('subjective' in sections)) issues.push('Missing Subjective section');
+  if (!('objective' in sections)) issues.push('Missing Objective section');
+  if (!('assessment' in sections)) issues.push('Missing Assessment section');
+  if (!('plan' in sections)) issues.push('Missing Plan section');
 
   const hasAssistLevel = ASSIST_LEVELS.some(({ pattern }) => pattern.test(text));
   if (!hasAssistLevel) issues.push('No assistance level documented');
@@ -270,7 +279,7 @@ function validateClinicalContent(text, noteType, targetEHR) {
   }
 
   if (targetEHR === 'kinnser') {
-    if (!/intake|assessment|plan|discharge/i.test(text)) {
+    if (!sections.assessment && !sections.plan && !/intake|discharge/i.test(text)) {
       warnings.push('Kinnser notes should follow intake/assessment/plan structure');
     }
   }
