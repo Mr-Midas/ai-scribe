@@ -6,6 +6,7 @@ import {
   formatForEHR
 } from './src/clinical.js';
 import { APP_HTML } from './src/app.js';
+import { checkReimbursement, SUPPORTED_PAYERS } from './src/reimbursement.js';
 
 // The web app only talks to this API and loads nothing from other sites.
 const APP_HEADERS = {
@@ -340,6 +341,8 @@ async function handleApiRequest(request, env, ctx) {
     response = jsonResponse({ valid: true, tier: auth.tier });
   } else if (request.method === 'POST' && path === '/api/v1/notes/generate') {
     response = await handleGenerateNote(request, env, ctx);
+  } else if (request.method === 'POST' && path === '/api/v1/notes/reimbursement-check') {
+    response = await handleReimbursementCheck(request);
   } else if (request.method === 'POST' && path === '/api/v1/notes/extract') {
     response = await handleExtractStructured(request);
   } else if (request.method === 'POST' && path === '/api/v1/notes/format') {
@@ -366,6 +369,7 @@ async function handleUsageStats(request) {
       'POST /api/v1/notes/extract': 'Extract structured EHR data',
       'POST /api/v1/notes/format': 'Format for TherapyBOSS or Kinnser',
       'POST /api/v1/notes/validate': 'Validate clinical content',
+      'POST /api/v1/notes/reimbursement-check': 'Payer documentation checklist (medicare-home-health)',
       'POST /api/v1/webhooks/deliver': 'Deliver payload to EHR webhook'
     },
     rate_limits: {
@@ -382,10 +386,13 @@ async function handleGenerateNote(request, env, ctx) {
   const startTime = Date.now();
   try {
     const body = await request.json();
-    const { raw_notes, note_type, target_ehr, system_prompt, webhook_url, webhook_secret } = body;
+    const { raw_notes, note_type, target_ehr, payer, system_prompt, webhook_url, webhook_secret } = body;
 
     if (!raw_notes || !note_type) {
       return jsonResponse({ error: 'Missing required fields: raw_notes, note_type' }, 400);
+    }
+    if (payer && !SUPPORTED_PAYERS.includes(payer)) {
+      return jsonResponse({ error: `Unsupported payer. Supported: ${SUPPORTED_PAYERS.join(', ')}` }, 400);
     }
 
     const prompt = system_prompt || buildSystemPrompt(note_type, target_ehr);
@@ -431,6 +438,9 @@ async function handleGenerateNote(request, env, ctx) {
       note: result.note,
       structured,
       validation: result.validation,
+      // Documentation reminders for the payer, checked against raw_notes. Never
+      // fed back to the model. null when no payer was given.
+      reimbursement: payer ? checkReimbursement(raw_notes, note_type, payer) : null,
       formatted,
       metadata: {
         note_type,
@@ -441,6 +451,18 @@ async function handleGenerateNote(request, env, ctx) {
         timestamp: new Date().toISOString()
       }
     });
+  } catch (error) {
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+async function handleReimbursementCheck(request) {
+  try {
+    const body = await request.json();
+    if (!body.raw_notes || !body.payer) return jsonResponse({ error: 'Missing raw_notes or payer' }, 400);
+    const result = checkReimbursement(body.raw_notes, body.note_type || 'treatment', body.payer);
+    if (!result) return jsonResponse({ error: `Unsupported payer. Supported: ${SUPPORTED_PAYERS.join(', ')}` }, 400);
+    return jsonResponse({ success: true, reimbursement: result });
   } catch (error) {
     return jsonResponse({ error: error.message }, 500);
   }

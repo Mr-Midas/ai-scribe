@@ -67,6 +67,17 @@ export const APP_HTML = `<!doctype html>
   .signin { max-width: 440px; margin: 40px auto; }
   .check { display: flex; gap: 8px; align-items: center; font-weight: 400; margin: 12px 0 16px; }
   .link { background: none; border: 0; color: var(--accent); font: inherit; cursor: pointer; padding: 0; }
+  .reimb { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 14px; }
+  .reimb h3 { font-size: 1rem; margin: 0 0 4px; }
+  .reimb ul { list-style: none; padding: 0; margin: 10px 0; }
+  .reimb li { display: grid; grid-template-columns: 76px 1fr; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .reimb li:last-child { border-bottom: 0; }
+  .tag { font-size: .75rem; font-weight: 700; border-radius: 6px; padding: 2px 6px; text-align: center; align-self: start; }
+  .tag.found { background: var(--ok-bg); color: var(--ok-text); }
+  .tag.missing { background: var(--err-bg); color: var(--err-text); }
+  .tag.reminder { background: var(--warn-bg); color: var(--warn-text); }
+  .reimb .req { font-weight: 600; }
+  .reimb .why { color: var(--muted); font-size: .9rem; }
   .divider { border: 0; border-top: 1px solid var(--line); margin: 20px 0 14px; }
   [hidden] { display: none !important; }
 </style>
@@ -124,6 +135,13 @@ export const APP_HTML = `<!doctype html>
             <option value="kinnser">Kinnser</option>
           </select>
         </div>
+        <div>
+          <label for="payer">Insurance</label>
+          <select id="payer">
+            <option value="medicare-home-health">Medicare home health</option>
+            <option value="">Other / skip checklist</option>
+          </select>
+        </div>
       </div>
       <label for="raw">Notes</label>
       <textarea id="raw" placeholder="e.g. pt reports less R hip pain. UB dressing min A. amb 10 ft RW CGA."></textarea>
@@ -150,6 +168,12 @@ export const APP_HTML = `<!doctype html>
           Not in your notes (add these yourself only if you assessed them):
           <ul id="gapList"></ul>
         </div>
+        <div id="reimb" class="reimb" hidden>
+          <h3 id="reimbTitle"></h3>
+          <p class="hint">Checked against what you wrote. Add anything missing yourself, and only if it is true.</p>
+          <ul id="reimbList"></ul>
+          <p class="hint" id="reimbNote"></p>
+        </div>
       </div>
     </div>
   </section>
@@ -160,6 +184,7 @@ export const APP_HTML = `<!doctype html>
   // Filled in by worker.js from the DEMO_API_KEY setting; empty hides the guest button.
   var DEMO_KEY = '__DEMO_API_KEY__';
   var TYPE_STORE = 'noteScribeType';
+  var PAYER_STORE = 'noteScribePayer';
   var apiKey = null;
   var noteType = 'treatment';
 
@@ -283,6 +308,41 @@ export const APP_HTML = `<!doctype html>
     if (items && items.length) { var ul = document.createElement('ul'); list(ul, items); box.appendChild(ul); }
   }
 
+  var TAGS = { found: 'Found', missing: 'Missing', reminder: 'Reminder' };
+  function showReimbursement(rb) {
+    $('reimb').hidden = !rb;
+    if (!rb) return;
+    var missing = rb.items.filter(function (i) { return i.status === 'missing'; }).length;
+    $('reimbTitle').textContent = rb.payer_name + ' documentation checklist' + (missing ? ' (' + missing + ' missing)' : '');
+    var ul = $('reimbList');
+    ul.textContent = '';
+    rb.items.forEach(function (item) {
+      var li = document.createElement('li');
+      var tag = document.createElement('span');
+      tag.className = 'tag ' + item.status;
+      tag.textContent = TAGS[item.status] || item.status;
+      var text = document.createElement('div');
+      var req = document.createElement('div');
+      req.className = 'req';
+      req.textContent = item.requirement;
+      text.appendChild(req);
+      if (item.status !== 'found') {
+        var why = document.createElement('div');
+        why.className = 'why';
+        why.textContent = item.hint;
+        text.appendChild(why);
+      }
+      var src = document.createElement('div');
+      src.className = 'why';
+      src.textContent = 'Source: ' + item.source;
+      text.appendChild(src);
+      li.appendChild(tag);
+      li.appendChild(text);
+      ul.appendChild(li);
+    });
+    $('reimbNote').textContent = rb.disclaimer + (rb.verified_by_expert ? '' : ' These rules have not yet been reviewed by a billing professional.') + ' Last reviewed ' + rb.last_reviewed + '.';
+  }
+
   function generate() {
     var raw = $('raw').value.trim();
     if (!raw || $('generate').disabled) return;
@@ -292,6 +352,7 @@ export const APP_HTML = `<!doctype html>
     $('working').hidden = false;
     var body = { raw_notes: raw, note_type: noteType };
     if ($('ehr').value) body.target_ehr = $('ehr').value;
+    if ($('payer').value) body.payer = $('payer').value;
     api('/api/v1/notes/generate', { method: 'POST', body: JSON.stringify(body) }).then(function (r) {
       $('working').hidden = true;
       $('result').hidden = false;
@@ -312,6 +373,7 @@ export const APP_HTML = `<!doctype html>
       }
       var gaps = (v.warnings || []).filter(function (w) { return !/skilled language/i.test(w); });
       if (gaps.length) { list($('gapList'), gaps); $('gaps').hidden = false; }
+      showReimbursement(r.body.reimbursement);
     }).catch(function () {
       $('working').hidden = true;
       $('result').hidden = false;
@@ -332,6 +394,9 @@ export const APP_HTML = `<!doctype html>
   });
 
   setType(read(TYPE_STORE) || 'treatment');
+  var savedPayer = read(PAYER_STORE);
+  if (savedPayer !== null) $('payer').value = savedPayer === 'none' ? '' : savedPayer;
+  $('payer').addEventListener('change', function () { write('localStorage', PAYER_STORE, $('payer').value || 'none'); });
   var saved = read(KEY_STORE);
   if (saved) {
     signIn(saved, !!(store('localStorage') && store('localStorage').getItem(KEY_STORE))).catch(function () { forget(KEY_STORE); show('signin'); });

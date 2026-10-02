@@ -837,6 +837,7 @@ export {
   extractStructuredData,
   extractROM,
   extractMMT,
+  extractFacts,
   findBillingCodes,
   findUngroundedValues,
   parseSOAP,

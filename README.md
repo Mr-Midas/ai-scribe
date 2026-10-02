@@ -58,6 +58,27 @@ Never put a key in source code, documentation or a chat message. The only except
 
 The web app's **Try as guest** button uses the key set as `DEMO_API_KEY` in `wrangler.toml`; remove that line and redeploy to hide the button. To turn off the public testing key, run the "turn a key off" command above with `nscrb_demo_a1d59ec7e179b6b9` and `"tier":"demo"`. To replace it, create a new key with `"tier":"demo"` and update `DEMO_API_KEY` in `wrangler.toml` and the [Try it](#try-it) section.
 
+## Medicare home health documentation checklist
+
+When **Insurance** is set to *Medicare home health* (the default in the web app, or `"payer": "medicare-home-health"` in the API), each note comes with a checklist of what Medicare expects a home health therapy visit note to show:
+
+| Checked | Treatment | Initial eval |
+|---------|:---------:|:------------:|
+| Homebound status | ✓ | ✓ |
+| Skilled service provided | ✓ | ✓ |
+| Objective measurement of function | ✓ | ✓ |
+| Patient's response to treatment | ✓ | ✓ |
+| Functional goals and progress | ✓ | ✓ |
+| Visit length | ✓ | ✓ |
+| Plan of care: frequency and duration | | ✓ |
+| 30-day functional reassessment (reminder) | ✓ | |
+
+Each item is marked **Found**, **Missing** or **Reminder**, with what to add and the CMS source. The checklist reads the clinician's own notes, not the AI's rewrite, and missing items are never sent back to the AI, so it is not asked to invent documentation.
+
+The checklist does not calculate billing units: the Medicare 8-minute rule applies to outpatient (Part B) timed codes, not home health visits. The rules live in `src/reimbursement.js`.
+
+> **Not yet verified by a billing professional.** The rules were drafted from the Medicare Benefit Policy Manual (Ch. 7), the Medicare Claims Processing Manual (Ch. 10) and 42 CFR 409 and 484. CMS rules change. Have a home health billing or compliance expert review `src/reimbursement.js`, then set `verified_by_expert: true` and update `last_reviewed`. Detection is keyword-based, so an item can show *Missing* when the clinician phrased it unusually.
+
 ## What it checks, and what it doesn't
 
 The safeguards below catch values the AI adds: numbers, grades, scores, dates, assist levels, billing codes, and ROM or strength values attached to the wrong body part. They do **not** catch invented statements without a value, such as a diagnosis, a precaution, or "patient tolerated treatment well." That is why every note must still be read by the clinician before it is used.
@@ -122,6 +143,7 @@ Base URL: `https://note-scribe-ai-api.thomelfin529.workers.dev`. Full documentat
 - `POST /api/v1/notes/format`: format for TherapyBOSS or Kinnser
 - `POST /api/v1/notes/validate`: validate a note against raw notes
 - `POST /api/v1/webhooks/deliver`: deliver to an EHR webhook
+- `POST /api/v1/notes/reimbursement-check`: payer documentation checklist (Medicare home health)
 - `GET /api/v1/auth/check`: check that an access key is valid
 
 ### Reliability safeguards

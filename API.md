@@ -74,6 +74,7 @@ X-API-Key: nscrb_your_key
 | raw_notes | string | Yes | Raw shorthand notes |
 | note_type | string | Yes | `initial-eval` or `treatment` |
 | target_ehr | string | No | `therapyboss`, `kinnser`, or omit |
+| payer | string | No | `medicare-home-health` adds a `reimbursement` documentation checklist to the response. Omit to skip. |
 | system_prompt | string | No | Replaces the built-in prompt. Not recommended: the built-in prompt is what the evaluation suite tests. Grounding checks still run. |
 | webhook_url | string | No | Auto-deliver formatted note to this URL |
 | webhook_secret | string | No | Secret for the `X-Signature` HMAC-SHA256 header (see Webhook Delivery) |
@@ -161,6 +162,41 @@ POST /api/v1/notes/format
   "target_ehr": "therapyboss"
 }
 ```
+
+### Reimbursement Documentation Check
+
+```
+POST /api/v1/notes/reimbursement-check
+```
+
+Checks raw notes against a payer's documentation requirements, without generating a note. The same result is returned as `reimbursement` by `/notes/generate` when `payer` is set.
+
+```json
+{ "raw_notes": "Visit 45 min. Instructed in LB dressing w/ reacher, mod A...", "note_type": "treatment", "payer": "medicare-home-health" }
+```
+
+Response:
+```json
+{
+  "success": true,
+  "reimbursement": {
+    "payer": "medicare-home-health",
+    "payer_name": "Medicare home health",
+    "last_reviewed": "2026-10-02",
+    "verified_by_expert": false,
+    "disclaimer": "Documentation reminders only, not a coverage or billing determination. ...",
+    "items": [
+      { "id": "homebound", "requirement": "Homebound status", "status": "missing", "hint": "Say why leaving home takes a considerable and taxing effort ...", "source": "Medicare Benefit Policy Manual (Pub. 100-02), Ch. 7, §30.1.1; 42 CFR 409.42(a)" },
+      { "id": "visit_length", "requirement": "Visit length", "status": "found", "hint": "...", "source": "Medicare Claims Processing Manual (Pub. 100-04), Ch. 10" }
+    ]
+  }
+}
+```
+
+- `status` is `found`, `missing`, or `reminder` (a requirement one note can't show, such as the 30-day functional reassessment).
+- Items are checked against `raw_notes`, never the generated note, and are never sent back to the model, so the AI is not asked to add documentation the clinician didn't write.
+- Treatment notes check: homebound status, skilled service, objective measurement, patient response, functional goals, visit length, and the 30-day reassessment reminder. Initial evaluations also check plan-of-care frequency and duration.
+- The rules have not yet been verified by a billing professional (`verified_by_expert: false`).
 
 ### Validate Note
 
