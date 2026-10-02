@@ -43,9 +43,9 @@ function buildSystemPrompt(noteType, targetEHR) {
 
   let noteTypeRules = '';
   if (noteType === 'initial-eval') {
-    noteTypeRules = 'INITIAL EVALUATION: Document OBSERVATIONS ONLY. Include baseline ROM (degrees), MMT grades (0-5 scale), balance scores, assistance levels for each activity. Document safety: hand placements, time to complete tasks (minutes), number of attempts, and verbal/visual/tactile cues provided. Do NOT document progress. Set goals as target assistance levels.';
+    noteTypeRules = 'INITIAL EVALUATION: Document OBSERVATIONS ONLY. Include baseline ROM (degrees), MMT grades (0-5 scale), balance scores, assistance levels for each activity. Document safety: hand placements, time to complete tasks (minutes), number of attempts, and verbal/visual/tactile cues provided. Do NOT document progress. If the raw notes state goals, write them as target assistance levels; do not create goals.';
   } else if (noteType === 'treatment') {
-    noteTypeRules = 'TREATMENT/RE-EVAL: Document progress since last session. Compare assistance levels (e.g., "Improved from Mod A to Standby Assist"). Note measurement changes (ROM, MMT). Update goals based on progress.';
+    noteTypeRules = 'TREATMENT/RE-EVAL: Document progress only where the raw notes describe it. Compare assistance levels (e.g., "Improved from Mod A to Standby Assist") only when the raw notes give both levels. Note measurement changes (ROM, MMT) only when the raw notes give both values. Do not create goals.';
   }
 
   const context = 'Context-aware goals: Consider diagnosis (stroke lesion location, TBI cognition, SCI level, orthopedic weight-bearing status). Never use "independent" as a goal if deficits make it unsafe.';
@@ -96,11 +96,12 @@ function extractStructuredData(noteText, noteType, sourceNotes) {
   if (sourceNotes) {
     // Structured fields go straight into EHR records, so a measurement the model
     // added on its own is dropped here even if it slipped past validation.
-    const grounded = numbersIn(sourceNotes);
+    const romValues = groundedValues(sourceNotes, 'rom');
+    const mmtLabels = groundedValues(sourceNotes, 'mmt');
     structured.functional_abilities.rom_measurements = structured.functional_abilities.rom_measurements
-      .filter(m => grounded.has(String(m.degrees)) && (m.start_degrees === null || grounded.has(String(m.start_degrees))));
+      .filter(m => romValues.includes(Math.abs(m.degrees)) && (m.start_degrees === null || romValues.includes(Math.abs(m.start_degrees))));
     structured.functional_abilities.strength_grades = structured.functional_abilities.strength_grades
-      .filter(m => grounded.has(String(m.grade)));
+      .filter(m => mmtLabels.includes(m.label));
   }
 
   const timeMatch = noteText.match(/Time[:\s]+(\d+)\s*min/i);
@@ -260,39 +261,298 @@ const NUMBER_WORDS = {
   forty: 40, fifty: 50, sixty: 60, ninety: 90, hundred: 100, half: 0.5
 };
 
-function numbersIn(text) {
-  const values = new Set();
-  const str = String(text || '').toLowerCase();
-  for (const m of str.matchAll(/\d+(?:\.\d+)?/g)) values.add(String(parseFloat(m[0])));
-  for (const m of str.matchAll(/\b[a-z]+\b/g)) {
-    if (m[0] in NUMBER_WORDS) values.add(String(NUMBER_WORDS[m[0]]));
-  }
-  return values;
+// ---------------------------------------------------------------------------
+// Grounding: every value in a generated note must match a value the clinician
+// wrote FOR THE SAME MEASURE. "3 sets" is not grounded by "3/5" (an MMT grade),
+// while "60 minutes" is grounded by "1 hour". Each value is read as a fact with
+// one or more readings ({ type, value }); a reading is ambiguous only when the
+// text itself is (e.g. "hip flex 90" may be degrees or reps).
+// ---------------------------------------------------------------------------
+
+const WORD_NUMS = Object.keys(NUMBER_WORDS).filter(w => !['once', 'twice', 'thrice', 'half'].includes(w)).join('|');
+// A number written as digits (not part of an identifier like "C5" or "SpO2", but
+// allowed after the "x" in "3x10") or as a word.
+const N = String.raw`(?:(?<![A-WYZa-wyz\d.])\d+(?:\.\d+)?|\b(?:${WORD_NUMS})\b)`;
+const TO = String.raw`\s*(?:-|–|to)\s*`;
+const TIME_UNIT = String.raw`(seconds?|secs?|s|minutes?|mins?|hours?|hrs?|h|days?|weeks?|wks?|months?|mos?|years?|yrs?)\b`;
+const DIST_UNIT = String.raw`(?:(feet|foot|ft|meters?|metres?|m|yards?|yds?|yd|km|miles?|mi|cm|inches|inch)\b|(['′]))`;
+const MOTION_SHORT = String.raw`(?:flex(?:ion)?|ext(?:ension)?|abd(?:uction)?|add(?:uction)?|IR|ER|int(?:ernal)?\.?\s*rot(?:ation)?|ext(?:ernal)?\.?\s*rot(?:ation)?|rotation|sup(?:ination)?|pron(?:ation)?|DF|PF|dorsiflexion|plantar\s*flexion|plantarflexion|inv(?:ersion)?|ev(?:ersion)?|(?:radial|ulnar|rad|uln)\.?\s*dev(?:iation)?)`;
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+// Effort the patient performs is not a number the clinician wrote, so the
+// prompt's own assist-level definitions ("Min A (patient 75%+)") are exempt.
+const ASSIST_DEFINITION_RE = /\(\s*(?:patient\s*)?(?:<\s*)?\d{1,3}\s*%?\s*(?:-\s*\d{1,3}\s*)?%\s*\+?\s*\)/gi;
+const GG_CODE_RE = /\b0([1-6])\s*[-–:]?\s*(?:Independent|Set-?up(?:\s*(?:or|\/)\s*clean-?up)?|Supervision(?:\s*(?:or|\/)\s*touching(?:\s*assistance)?)?|Partial\s*\/\s*moderate(?:\s*assistance)?|Substantial\s*\/\s*maximal(?:\s*assistance)?|Dependent)/gi;
+
+// Assist levels as a clinician or model would write them. Stricter than
+// ASSIST_LEVELS so "5 min ambulation" is not read as "Min A".
+const ASSIST_GROUNDING = [
+  { level: 'Total Assist', pattern: /\b(?:total(?:ly)?\.?\s*(?:a\b|assist\w*)|dependent)\b/gi },
+  { level: 'Max A', pattern: /\bmax(?:imal|imum)?\.?\s*(?:a\b|assist\w*)/gi },
+  { level: 'Mod A', pattern: /\bmod(?:erate)?\.?\s*(?:a\b|assist\w*)/gi },
+  { level: 'Min A', pattern: /\bmin(?:imal|imum)?\.?\s*(?:a\b|assist\w*)/gi },
+  { level: 'Contact Guard Assist', pattern: /\b(?:contact\s*guard\w*|CGA)\b/gi },
+  { level: 'Standby Assist', pattern: /\b(?:stand\s*-?\s*by\s*(?:assist\w*)?|SBA)\b/gi },
+  { level: 'Supervision', pattern: /\b(?:supervision|supervised)\b/gi },
+  { level: 'Independent', pattern: /\b(?:independent(?:ly)?|indep|mod(?:ified)?\.?\s*(?:I|indep\w*))\b/gi }
+];
+
+// OASIS Section GG performance codes and the assist levels each one describes.
+const GG_LEVELS = {
+  6: ['Independent'],
+  5: ['Independent', 'Supervision'],
+  4: ['Supervision', 'Standby Assist', 'Contact Guard Assist'],
+  3: ['Min A', 'Mod A'],
+  2: ['Max A'],
+  1: ['Total Assist']
+};
+
+const SECONDS = { s: 1, mi: 60, h: 3600, d: 86400, w: 604800, mo: 2629800, y: 31557600 };
+function secondsPer(unit) {
+  const u = unit.toLowerCase();
+  if (u.startsWith('mo')) return SECONDS.mo;
+  if (u.startsWith('mi')) return SECONDS.mi;
+  return SECONDS[u[0]];
 }
 
-// Every measurement, count, grade, score or date in a generated note must come from
-// the clinician's raw notes. Returns the values that don't, with their unit, so the
-// retry prompt can name them. Numbers the prompt itself supplies are exempt: the
-// assist-level percentage definitions, the "/5" and "/10" scale denominators, and
-// OASIS Section GG codes (01-06).
-function findUngroundedValues(noteText, sourceNotes) {
-  const grounded = numbersIn(sourceNotes);
-  const note = String(noteText || '')
-    .replace(/\(\s*(?:patient\s*)?(?:<\s*)?\d{1,3}\s*%?\s*(?:-\s*\d{1,3}\s*)?%\s*\+?\s*\)/gi, '')
-    .replace(/\b0[1-6]\b(?=\s*[-–:]?\s*(?:Independent|Setup|Supervision|Partial|Substantial|Dependent))/gi, '');
-  const ungrounded = [];
-  // The optional suffix keeps "4-/5" or "3/10" together, so the scale denominator is
-  // never checked on its own and the retry prompt names the full value.
-  for (const m of note.matchAll(/(\d+(?:\.\d+)?)([+-]?\s*\/\s*(?:5|10)\b|\s*(?:%|°|[a-z]+))?/gi)) {
-    if (!grounded.has(String(parseFloat(m[1])))) ungrounded.push(`${m[1]}${m[2] || ''}`.trim());
+const FEET = { ft: 1, feet: 1, foot: 1, m: 3.28084, meter: 3.28084, metre: 3.28084, yd: 3, yard: 3, km: 3280.84, mi: 5280, mile: 5280, cm: 0.0328084, inch: 1 / 12, inche: 1 / 12 };
+function feetPer(unit) {
+  if (!unit) return 1; // ' or ′
+  const u = unit.toLowerCase().replace(/s$/, '');
+  return FEET[u];
+}
+
+function toNumber(text) {
+  const t = String(text).trim().toLowerCase();
+  return /\d/.test(t) ? parseFloat(t) : NUMBER_WORDS[t];
+}
+
+function romanToNumber(text) {
+  const t = text.toUpperCase();
+  return { I: 1, II: 2, III: 3, IV: 4 }[t] ?? parseInt(t, 10);
+}
+
+function normalizePeriod(text) {
+  const t = text.toLowerCase();
+  if (t.startsWith('d')) return 'day';
+  if (t.startsWith('w')) return 'week';
+  return 'month';
+}
+
+function isCalendarDate(month, day) {
+  return Number.isInteger(month) && Number.isInteger(day) && month >= 1 && month <= 12 && day >= 1 && day <= 31;
+}
+
+function normalizeYear(year) {
+  if (year === undefined) return undefined;
+  const y = parseInt(year, 10);
+  return y < 100 ? 2000 + y : y;
+}
+
+// Reads every value in `text` with what it measures. Patterns run from most to
+// least specific, and each match is blanked out so later patterns skip it.
+// A bare number word ("stood on one leg") is only a value in the raw notes;
+// in a generated note it needs a unit ("two weeks") to count.
+function extractFacts(text, { bareWords = true } = {}) {
+  const original = String(text || '');
+  let buf = original;
+  const facts = [];
+  const gg = [];
+
+  const scan = (re, toFacts) => {
+    buf = buf.replace(re, (...args) => {
+      const match = args[0];
+      const offset = args[args.length - 2];
+      const produced = toFacts(args.slice(1, -2), match, offset);
+      if (produced === null) return match; // not a value after all; leave for later patterns
+      for (const fact of [].concat(produced)) facts.push({ text: match.trim(), ...fact });
+      return ' '.repeat(match.length);
+    });
+  };
+  const blank = re => { buf = buf.replace(re, m => ' '.repeat(m.length)); };
+  const one = (type, value) => ({ readings: [{ type, value }] });
+
+  blank(ASSIST_DEFINITION_RE);
+  buf = buf.replace(GG_CODE_RE, (m, code) => { gg.push({ text: m.trim(), code: parseInt(code, 10) }); return ' '.repeat(m.length); });
+
+  // Dates with a year: 9/12/2026, 9-12-26
+  scan(/(?<![\d/.-])(\d{1,2})[/-](\d{1,2})[/-](\d{4}|\d{2})(?![\d/])/g, ([m, d, y]) => {
+    const month = parseInt(m, 10), day = parseInt(d, 10);
+    return isCalendarDate(month, day) ? one('date', { month, day, year: normalizeYear(y) }) : null;
+  });
+  // Dates with a month name: Sept 12, September 12th, 2026
+  scan(new RegExp(String.raw`\b(${MONTHS.join('|')})[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b(?:,?\s*(\d{4})\b)?`, 'gi'), ([mon, d, y]) => {
+    const month = MONTHS.indexOf(mon.toLowerCase().slice(0, 3)) + 1, day = parseInt(d, 10);
+    return isCalendarDate(month, day) ? one('date', { month, day, year: normalizeYear(y) }) : null;
+  });
+
+  // MMT grades: 3/5, 4-/5, 3+ / 5, "four out of five"
+  scan(/(?<![\d/.])([0-5])\s*([+-])?\s*\/\s*5(?![\d/])/g, ([grade, mod]) => {
+    const readings = [{ type: 'mmt', value: `${grade}${mod || ''}/5` }];
+    if (!mod && isCalendarDate(parseInt(grade, 10), 5)) readings.push({ type: 'date', value: { month: parseInt(grade, 10), day: 5 } });
+    return { readings };
+  });
+  scan(new RegExp(String.raw`(${N})\s*out\s*of\s*(?:5|five)\b`, 'gi'), ([g]) => {
+    const grade = toNumber(g);
+    return grade <= 5 ? one('mmt', `${grade}/5`) : null;
+  });
+
+  // Pain and other 0-10 scores: 4/10, "four out of ten"
+  scan(/(?<![\d/.])(\d{1,2}(?:\.\d)?)\s*\/\s*10(?![\d/])/g, ([score]) => {
+    const value = parseFloat(score);
+    if (value > 10) return null;
+    const readings = [{ type: 'pain', value }];
+    if (isCalendarDate(value, 10)) readings.push({ type: 'date', value: { month: value, day: 10 } });
+    return { readings };
+  });
+  scan(new RegExp(String.raw`(${N})\s*out\s*of\s*(?:10|ten)\b`, 'gi'), ([score]) => one('pain', toNumber(score)));
+
+  // Frequency: 2x/day, 3 times per week, 2x daily, twice a day, BID
+  scan(new RegExp(String.raw`(${N})\s*(?:x|×|times?)\s*(?:\/|per|a|an|each|every)?\s*(days?|d|weeks?|wks?|months?|mos?)\b`, 'gi'),
+    ([n, period]) => one('frequency', `${toNumber(n)}/${normalizePeriod(period)}`));
+  scan(new RegExp(String.raw`(${N})\s*(?:x|×|times?)\s*(daily|weekly|monthly)\b`, 'gi'),
+    ([n, period]) => one('frequency', `${toNumber(n)}/${normalizePeriod(period)}`));
+  scan(/\b(once|twice|thrice)\s*(?:a|an|per|each|every|\/)?\s*(daily|weekly|monthly|days?|weeks?|wks?|months?)\b/gi,
+    ([n, period]) => one('frequency', `${NUMBER_WORDS[n.toLowerCase()]}/${normalizePeriod(period)}`));
+  scan(/\b(QD|BID|TID|QID)\b/g, ([abbr]) => one('frequency', `${{ QD: 1, BID: 2, TID: 3, QID: 4 }[abbr]}/day`));
+
+  // Age: 72yo, 72 y/o, 72-year-old
+  scan(new RegExp(String.raw`(${N})\s*-?\s*(?:yo\b|y\/o\b|y\.o\.?|(?:years?|yrs?)[\s-]*old\b)`, 'gi'), ([n]) => one('age', toNumber(n)));
+
+  // ROM in degrees: 90 deg, 0-85°, -10 degrees
+  scan(new RegExp(String.raw`(-?${N})(?:${TO}(-?${N}))?\s*(?:°|degrees?\b|degs?\b)`, 'gi'),
+    ([a, b]) => [a, b].filter(v => v !== undefined).map(v => one('rom', Math.abs(toNumber(v)))));
+  // ROM tagged by AROM/PROM/ROM: "PROM 0-140", "AROM: 85"
+  scan(new RegExp(String.raw`\b(?:AA|A|P)?ROM\b[:\s]*(?:of\s*|is\s*|=\s*)?(-?${N})(?:${TO}(-?${N}))?(?!\s*[+-]?\s*\/)`, 'gi'),
+    ([a, b]) => [a, b].filter(v => v !== undefined).map(v => one('rom', Math.abs(toNumber(v)))));
+
+  // Sets x reps: 3x10, 3 sets of 10 reps, 3 x 30 sec, 2 x 150 ft
+  scan(new RegExp(String.raw`(${N})\s*(sets?\s*(?:of|x|×)?|x|×)\s*(${N})\s*(?:(reps?|repetitions?)\b|${TIME_UNIT}|${DIST_UNIT})?`, 'gi'),
+    ([s, sep, r, , timeUnit, distUnit, distMark]) => {
+      const setsText = /set/i.test(sep) ? `${s} sets` : `${s} x`;
+      const sets = { text: setsText, readings: [{ type: 'sets', value: toNumber(s) }] };
+      if (timeUnit) return [sets, { text: `${r} ${timeUnit}`, ...one('time', toNumber(r) * secondsPer(timeUnit)) }];
+      if (distUnit || distMark) return [sets, { text: `${r} ${distUnit || distMark}`, ...one('distance', toNumber(r) * feetPer(distUnit)) }];
+      return [sets, { text: `${r} reps`, ...one('reps', toNumber(r)) }];
+    });
+  scan(new RegExp(String.raw`(${N})\s*sets?\b`, 'gi'), ([n]) => one('sets', toNumber(n)));
+  scan(new RegExp(String.raw`(${N})(?:${TO}(${N}))?\s*(?:reps?|repetitions?)\b`, 'gi'),
+    ([a, b]) => [a, b].filter(v => v !== undefined).map(v => one('reps', toNumber(v))));
+
+  // Distance: 10 ft, 150 feet, 45 m, 10'
+  scan(new RegExp(String.raw`(${N})(?:${TO}(${N}))?\s*-?\s*${DIST_UNIT}`, 'gi'),
+    ([a, b, unit]) => [a, b].filter(v => v !== undefined).map(v => one('distance', toNumber(v) * feetPer(unit))));
+
+  // Time: 12 min, 1 hour, 30 sec, 2 days, 4 weeks, half an hour
+  scan(/\bhalf\s+an?\s+hour\b/gi, () => one('time', 1800));
+  scan(/\ban\s+hour\b/gi, () => one('time', 3600));
+  scan(new RegExp(String.raw`(${N})(?:${TO}(${N}))?\s*-?\s*${TIME_UNIT}`, 'gi'),
+    ([a, b, unit]) => [a, b].filter(v => v !== undefined).map(v => one('time', toNumber(v) * secondsPer(unit))));
+
+  scan(new RegExp(String.raw`(${N})\s*(?:%|percent\b)`, 'gi'), ([n]) => one('percent', toNumber(n)));
+
+  // Counts: 2 attempts, 3 trials, 12 steps, x3, 2x
+  scan(new RegExp(String.raw`(${N})\s*(?:attempts?|trials?|times|bouts?|rounds?|laps?|steps?|stairs?|episodes?|cues?|VCs?|TCs?|LOBs?|falls?|(?:rest\s*)?breaks?)\b`, 'gi'),
+    ([n]) => one('count', toNumber(n)));
+  scan(/(?<![A-Za-z\d])[x×]\s*(\d+)\b/gi, ([n]) => ({ readings: ['count', 'reps', 'sets'].map(type => ({ type, value: toNumber(n) })) }));
+  scan(/(?<![A-Za-z\d.])(\d+)\s*x\b/gi, ([n]) => one('count', toNumber(n)));
+  scan(/(?<![A-Za-z\d.])(\d+)(?:st|nd|rd|th)\b/gi, ([n]) => ({ readings: ['count', 'other'].map(type => ({ type, value: toNumber(n) })) }));
+
+  // Motion followed by a bare number: "hip flex 90" may be degrees or reps.
+  scan(new RegExp(String.raw`\b${MOTION_SHORT}\b[:\s]*(-?${N})(?:${TO}(-?${N}))?(?!\s*(?:[+-]?\s*\/|[x×]\b|\d))`, 'gi'),
+    ([a, b]) => [a, b].filter(v => v !== undefined).map(v => {
+      const value = toNumber(v);
+      return { readings: [{ type: 'rom', value: Math.abs(value) }, { type: 'reps', value }, { type: 'other', value }] };
+    }));
+
+  // Severity grades and stages: "Grade I sprain", "Stage 2 pressure injury"
+  scan(/\b(stage|grade)\s+(IV|I{1,3}|[0-4])\b(?!\s*[+-]?\s*\/)/gi, ([kind, level]) => one(kind.toLowerCase(), romanToNumber(level)));
+
+  // Identifiers such as spinal levels (C5, L4-L5) must appear verbatim.
+  scan(/\b[A-Za-z]+\d[A-Za-z\d]*\b/g, (_, match) => /^(?:sp)?o2$/i.test(match) ? [] : one('identifier', match.toLowerCase()));
+
+  // Remaining "a/b": a date (9/12) or a ratio such as blood pressure (120/80).
+  scan(/(?<![\d/.])(\d{1,3})\s*\/\s*(\d{1,3})(?![\d/])/g, ([a, b], match) => {
+    const month = parseInt(a, 10), day = parseInt(b, 10);
+    if (isCalendarDate(month, day)) return one('date', { month, day });
+    return one('ratio', match.replace(/\s/g, ''));
+  });
+
+  // Bare numbers. "pain 4" is a pain score; anything else is an unlabelled value.
+  scan(new RegExp(String.raw`(-?${N})`, 'gi'), ([n], match, offset) => {
+    const value = toNumber(n);
+    if (value === undefined || Number.isNaN(value) || (!bareWords && !/\d/.test(n))) return null;
+    const before = original.slice(Math.max(0, offset - 30), offset);
+    const readings = [{ type: 'other', value: Math.abs(value) }];
+    if (/pain[^.\n\d]{0,20}$/i.test(before)) readings.push({ type: 'pain', value: Math.abs(value) });
+    return { readings };
+  });
+
+  const assist = [];
+  for (const { level, pattern } of ASSIST_GROUNDING) {
+    for (const m of buf.matchAll(pattern)) assist.push({ text: m[0].trim(), level });
   }
-  // Severity grades and stages ("Grade I sprain", "Stage 2") are clinical
-  // judgements the model must not add on its own.
-  const source = String(sourceNotes || '').toLowerCase();
-  for (const m of note.matchAll(/\b(grade|stage)\s+(I{1,3}V?|IV|[0-4])\b/gi)) {
-    if (!source.includes(m[1].toLowerCase())) ungrounded.push(m[0]);
+
+  return { facts, gg, assist };
+}
+
+// Which reading types in the raw notes can ground a reading of a given type in the
+// note. Counts are interchangeable with unlabelled numbers, but sets, reps, MMT,
+// ROM, time, etc. must match their own kind.
+const COMPATIBLE = {
+  other: ['other', 'count', 'sets', 'reps'],
+  count: ['count', 'other', 'reps'],
+  sets: ['sets', 'other'],
+  reps: ['reps', 'other']
+};
+
+function sameValue(type, a, b) {
+  if (type === 'date') {
+    return a.month === b.month && a.day === b.day && (a.year === undefined || a.year === b.year);
+  }
+  if (typeof a === 'number' && typeof b === 'number') {
+    // Unit conversions (ft <-> m) round, so allow 3% for distance; others are exact.
+    if (type === 'distance') return Math.abs(a - b) <= 0.03 * Math.max(a, b);
+    return Math.abs(a - b) < 1e-6;
+  }
+  return a === b;
+}
+
+function isGrounded(noteFact, rawFacts) {
+  return noteFact.readings.some(reading => {
+    const accepted = COMPATIBLE[reading.type] || [reading.type];
+    return rawFacts.some(raw => raw.readings.some(r => accepted.includes(r.type) && sameValue(reading.type, reading.value, r.value)));
+  });
+}
+
+// Every measurement, count, grade, score, date and assist level in a generated
+// note must come from the clinician's raw notes, used for the same measure.
+// Returns the note text of each value that isn't, so the retry prompt can name it.
+// Values the prompt itself supplies are exempt: the assist-level percentage
+// definitions and OASIS Section GG codes that match a documented assist level.
+function findUngroundedValues(noteText, sourceNotes) {
+  const raw = extractFacts(sourceNotes);
+  const note = extractFacts(noteText, { bareWords: false });
+  const ungrounded = [];
+  for (const fact of note.facts) {
+    if (!isGrounded(fact, raw.facts)) ungrounded.push(fact.text);
+  }
+  const rawLevels = new Set(raw.assist.map(a => a.level));
+  for (const { text, level } of note.assist) {
+    if (!rawLevels.has(level)) ungrounded.push(text);
+  }
+  for (const { text, code } of note.gg) {
+    if (!GG_LEVELS[code].some(level => rawLevels.has(level))) ungrounded.push(text);
   }
   return [...new Set(ungrounded)];
+}
+
+// Values of one reading type in the raw notes, for grounding structured fields.
+function groundedValues(sourceNotes, type) {
+  return extractFacts(sourceNotes).facts
+    .flatMap(f => f.readings)
+    .filter(r => r.type === type)
+    .map(r => r.value);
 }
 
 function parseSOAP(text) {

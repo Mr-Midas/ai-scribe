@@ -256,10 +256,10 @@ AI models sometimes add details that sound clinical but were never documented. E
 
 | Check | What happens |
 |-------|--------------|
-| **Every number must come from the raw notes.** Measurements, reps, sets, durations, pain scores, MMT grades, ROM degrees, dates, and sprain/wound grades or stages that are not in `raw_notes` | The note is regenerated with the invented values named. If they persist after 3 attempts, the response has `review_required: true`. |
+| **Every value must come from the raw notes, for the same measure.** Each number is read with what it measures (MMT grade, ROM degrees, sets, reps, distance, time, frequency, pain score, age, date, stage/grade) and must match a value the clinician wrote for that same measure, so "3/5" in the raw notes does not allow "3 sets". Equivalent wording is accepted (1 hour = 60 minutes, ft = feet, "three" = 3, BID = twice daily). Assist levels and Section GG codes must match a documented assist level. | The note is regenerated with the invented values named. If they persist after 3 attempts, the response has `review_required: true`. |
 | **No invented billing codes.** CPT, HCPCS and G-codes not present in `raw_notes` | Same as above. (Medicare functional limitation G-codes were discontinued on 1/1/2019 and are never requested.) |
 | **All four SOAP sections present.** Full (`Subjective:`) or abbreviated (`S:`) headers | Same as above. Empty sections read "Not documented this session." |
-| **Structured fields are grounded.** ROM and MMT values not in `raw_notes` | Dropped from `structured` / `formatted`, so they never reach an EHR field. |
+| **Structured fields are grounded.** ROM degrees and MMT grades not documented as ROM / MMT in `raw_notes` | Dropped from `structured` / `formatted`, so they never reach an EHR field. |
 | **Gaps are warnings, not retries.** Missing assistance level, skin integrity, goals | Reported in `validation.warnings`. The model is never asked to "add" missing data, because that is how fabrication happens. |
 
 **Integration rule for EHR clients:** if `review_required` is `true`, show the note to the clinician for review instead of filing it automatically. `validation.issues` lists exactly what needs attention.

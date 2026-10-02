@@ -36,5 +36,26 @@ export const RAW_NOTES = [
     note_type: 'treatment',
     target_ehr: 'kinnser',
     raw_notes: 'Stage 2 pressure injury L heel noted, RN notified. Bed mobility mod A, rolling with bed rail. Instructed in heel offloading with pillow.'
+  },
+  {
+    // The same digit means different things: 3/5 is a grade, 3x10 is sets x reps.
+    id: 'mmt-and-exercise-counts',
+    note_type: 'treatment',
+    target_ehr: 'kinnser',
+    raw_notes: 'R hip abd MMT 3/5, R knee ext 4-/5. sidelying hip abd 3x10, LAQ 2x15 R LE. pain 3/10 after ex.'
+  },
+  {
+    // Times in hours and seconds that a model may rewrite in other units.
+    id: 'time-and-frequency',
+    note_type: 'treatment',
+    target_ehr: 'therapyboss',
+    raw_notes: 'tx 1 hour. NuStep 10 min level 3. SLS 30 sec x3 each LE with CGA. HEP BID, f/u 2 wks.'
+  },
+  {
+    // Gait with distance, device, assist level, date and age.
+    id: 'gait-distance-date',
+    note_type: 'initial-eval',
+    target_ehr: 'kinnser',
+    raw_notes: 'DOS 9/12/2026. 81yo M s/p R TKA 9/1/2026. amb 150 ft RW SBA, 4 steps w/ 1 rail min A. R knee flex AROM 0-95 deg, ext lag 10 deg. pain 5/10 R knee.'
   }
 ];

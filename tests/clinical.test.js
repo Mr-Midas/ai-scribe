@@ -75,6 +75,102 @@ test('assist-level definitions and Section GG codes are not treated as invented'
   assert.deepEqual(findUngroundedValues(note, 'UB dressing min A'), []);
 });
 
+test('a number reused for a different measure is rejected (3/5 does not ground "3 sets")', () => {
+  const source = 'R hip abd MMT 3/5. sidelying hip abd 10 reps.';
+  assert.deepEqual(findUngroundedValues('R hip abduction 3/5. Sidelying hip abduction 10 reps.', source), []);
+  assert.deepEqual(findUngroundedValues('Sidelying hip abduction 3 sets of 10 reps.', source), ['3 sets']);
+  assert.deepEqual(findUngroundedValues('R hip abduction 3 degrees.', source), ['3 degrees']);
+  assert.deepEqual(findUngroundedValues('Pain 3/10.', source), ['3/10']);
+  assert.deepEqual(findUngroundedValues('Ambulated 10 feet.', source), ['10 feet']);
+});
+
+test('sets and reps are not swapped', () => {
+  const source = 'sit to stand 3x10';
+  assert.deepEqual(findUngroundedValues('Sit to stand 3 sets of 10 repetitions.', source), []);
+  assert.deepEqual(findUngroundedValues('Sit to stand 10 sets of 3 reps.', source), ['10 sets', '3 reps']);
+});
+
+test('equivalent units and wording are accepted', () => {
+  const cases = [
+    ['Treatment session 60 minutes.', 'tx 1 hour'],
+    ['Treatment session 1 hour.', 'tx 60 min'],
+    ['Treatment session 30 minutes.', 'tx half an hour'],
+    ['Single leg stance 30 seconds.', 'SLS 30 sec'],
+    ['Return in 14 days.', 'recheck 2 wks'],
+    ['Ambulated 150 feet with RW.', 'amb 150 ft RW'],
+    ['Ambulated 46 meters with RW.', 'amb 150 ft RW'],
+    ['Ambulated 10 ft.', "amb 10'"],
+    ['HEP twice daily.', 'HEP 2x/day'],
+    ['HEP 2 times per day.', 'HEP BID'],
+    ['Completed 3 sets of 10.', 'three sets of ten'],
+    ['Pain 4/10 in L knee.', 'pain four out of ten L knee'],
+    ['Pain 6/10.', 'pain 6'],
+    ['72-year-old female.', '72yo F'],
+    ['R shoulder flexion 0-85 degrees.', 'R shoulder flex AROM 0-85'],
+    ['R knee flexion 110 degrees.', 'R knee flex 110'],
+    ['Seen 9/12/2026.', 'DOS September 12, 2026'],
+    ['Stage II pressure injury.', 'stage 2 PI sacrum'],
+    ['Bed mobility with Contact Guard Assist.', 'bed mob CGA'],
+    ['Transfers with minimal assistance.', 'transfers min A'],
+    ['C5 SCI.', 'c5 sci']
+  ];
+  for (const [note, source] of cases) {
+    assert.deepEqual(findUngroundedValues(note, source), [], `"${note}" should be grounded by "${source}"`);
+  }
+});
+
+test('wrong values and wrong conversions are rejected', () => {
+  const cases = [
+    ['Treatment session 60 minutes.', 'tx 1 hour 10 min', []],
+    ['Treatment session 45 minutes.', 'tx 1 hour', ['45 minutes']],
+    ['Ambulated 150 meters.', 'amb 150 ft', ['150 meters']],
+    ['Ambulated 10 minutes.', 'amb 10 ft', ['10 minutes']],
+    ['HEP 2x/week.', 'HEP 2x/day', ['2x/week']],
+    ['Return in 2 weeks.', '2 days post injury', ['2 weeks']],
+    ['R grip 4/5.', 'R grip 4-/5', ['4/5']],
+    ['Stage 3 pressure injury.', 'stage 2 PI', ['Stage 3']],
+    ['Seen 9/13/2026.', 'DOS 9/12/2026', ['9/13/2026']],
+    ['Transfers Mod A.', 'transfers min A', ['Mod A']],
+    ['Goal: Independent with LB dressing.', 'LB dressing max A', ['Independent']],
+    ['GG 06 Independent.', 'toilet transfer max A', ['06 Independent']],
+    ['L4-L5 radiculopathy.', 'LBP', ['L4', 'L5']]
+  ];
+  for (const [note, source, expected] of cases) {
+    assert.deepEqual(findUngroundedValues(note, source), expected, `"${note}" vs "${source}"`);
+  }
+});
+
+test('number words, minutes and stray words are not misread', () => {
+  // "one leg" is not a value; "5 min" is time, not Min A; a 5-digit code is caught.
+  assert.deepEqual(findUngroundedValues('Single leg stance on one leg. Ambulated 5 min.', 'SLS, amb 5 min'), []);
+  assert.deepEqual(findUngroundedValues('Ambulated 5 min.', 'amb 5 min'), []);
+  assert.deepEqual(findUngroundedValues('Pt independent with HEP.', 'pt indep w/ HEP'), []);
+});
+
+test('every fixture grounds itself, and faithful rewrites of new fixtures pass', () => {
+  for (const { id, raw_notes } of RAW_NOTES) {
+    assert.deepEqual(findUngroundedValues(raw_notes, raw_notes), [], id);
+  }
+  assert.deepEqual(findUngroundedValues(
+    'R hip abduction 3/5, R knee extension 4-/5. Sidelying hip abduction 3 sets of 10 reps, long arc quads 2 sets of 15 reps R LE. Pain 3/10 after exercise.',
+    raw('mmt-and-exercise-counts')), []);
+  assert.deepEqual(findUngroundedValues(
+    'Treatment session 60 minutes. NuStep 10 minutes level 3. Single leg stance 30 seconds x3 each LE with Contact Guard Assist. HEP twice daily, follow up in 2 weeks.',
+    raw('time-and-frequency')), []);
+  assert.deepEqual(findUngroundedValues(
+    'Date of service 9/12/2026. 81-year-old male s/p R TKA on September 1, 2026. Ambulated 150 feet with RW, Standby Assist; 4 steps with 1 rail, Min A. R knee flexion AROM 0-95 degrees, extension lag 10 degrees. Pain 5/10 R knee.',
+    raw('gait-distance-date')), []);
+});
+
+test('values from the new fixtures cannot be reused for another measure', () => {
+  // 3 appears only as an MMT grade, sets count and pain score, never as minutes or feet.
+  assert.deepEqual(findUngroundedValues('Hip abduction 3 minutes. Ambulated 3 feet.', raw('mmt-and-exercise-counts')).sort(), ['3 feet', '3 minutes']);
+  // 10 is minutes (NuStep), not reps; 30 is seconds, not degrees.
+  assert.deepEqual(findUngroundedValues('NuStep 10 reps. Hip flexion 30 degrees.', raw('time-and-frequency')).sort(), ['10 reps', '30 degrees']);
+  // 150 is feet, not degrees; 10 is degrees, not minutes.
+  assert.deepEqual(findUngroundedValues('Knee flexion 150 degrees. Ambulated 10 minutes.', raw('gait-distance-date')).sort(), ['10 minutes', '150 degrees']);
+});
+
 test('findBillingCodes catches every code in a list', () => {
   assert.deepEqual(findBillingCodes('CPT 97112, 97110 and 97530'), ['97112', '97110', '97530']);
   assert.deepEqual(findBillingCodes('G8978 reported'), ['G8978']);
